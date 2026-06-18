@@ -2,8 +2,15 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Optimist · Wetter</title>
+<!-- Als App vom iPhone-Homescreen starten (Vollbild) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Optimist">
+<meta name="theme-color" content="#2b5876">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%232b5876'/%3E%3Ctext x='90' y='128' font-size='110' text-anchor='middle'%3E%E2%98%80%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
   :root{
     --bg-top:#2b5876; --bg-bot:#4e4376;
@@ -17,7 +24,8 @@
     color:var(--text);
     background:linear-gradient(165deg,var(--bg-top),var(--bg-bot));
     transition:background 1.2s ease;
-    min-height:100%;display:flex;justify-content:center;padding:20px 14px 60px;
+    min-height:100%;display:flex;justify-content:center;
+    padding:calc(20px + env(safe-area-inset-top)) 14px calc(60px + env(safe-area-inset-bottom));
   }
   .app{width:100%;max-width:430px;}
   .searchbar{display:flex;gap:8px;margin-bottom:18px;}
@@ -30,6 +38,7 @@
   .now-temp .deg{font-weight:200;}
   .now-cond{font-size:20px;font-weight:500;margin-top:2px;}
   .now-range{font-size:17px;color:var(--muted);margin-top:4px;}
+  .now-extra{font-size:14px;color:var(--muted);margin-top:4px;}
   .now-icon{font-size:42px;margin-top:6px;}
   .vibe{margin:14px auto 0;max-width:330px;font-size:14px;line-height:1.4;opacity:.92;}
   .mood{margin:22px 0 6px;background:var(--card);border-radius:20px;padding:16px 18px 18px;backdrop-filter:blur(12px);}
@@ -70,7 +79,8 @@
   .raw-controls select{background:rgba(255,255,255,.18);color:var(--text);border:none;border-radius:8px;padding:4px 8px;font-size:13px;}
   .raw-controls select option{color:#000;}
   .raw-note{font-size:11px;color:var(--muted);line-height:1.4;margin-bottom:10px;}
-  .raw-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  .raw-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .raw-tbl{width:100%;min-width:480px;border-collapse:collapse;font-size:12px;}
   .raw-tbl th,.raw-tbl td{padding:5px 4px;text-align:right;}
   .raw-tbl th:first-child,.raw-tbl td.mname,.raw-tbl .frow td:first-child{text-align:left;}
   .raw-tbl th{color:var(--muted);font-weight:500;border-bottom:1px solid rgba(255,255,255,.15);}
@@ -79,6 +89,26 @@
   .raw-tbl .frow td{border-top:1px solid rgba(255,255,255,.15);font-weight:600;}
   .raw-tbl .frow.hi td{color:#ffd86e;}
   span.excl{text-decoration:line-through;opacity:.6;}
+  .day{cursor:pointer;}
+  .day.open{background:rgba(255,255,255,.06);border-radius:10px;}
+  .d-chev{width:14px;text-align:center;color:var(--muted);font-size:14px;}
+  .day-detail{padding:4px 4px 14px;}
+  .detail-stats{display:flex;justify-content:space-between;gap:6px;margin:10px 0 6px;}
+  .detail-stats>div{flex:1;text-align:center;}
+  .detail-stats .v{font-size:18px;font-weight:600;}
+  .detail-stats .l{font-size:10px;color:var(--muted);margin-top:2px;}
+  .detail-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:14px 0 2px;}
+  .chart{width:100%;height:auto;display:block;}
+  .chart .clab{fill:#fff;font-size:11px;font-weight:600;text-anchor:middle;}
+  .axis{display:flex;margin-top:4px;padding:0 12px;}
+  .axis span{flex:1;text-align:center;font-size:10px;color:var(--muted);}
+  .acc{margin-top:8px;}
+  .acc-item{border-top:1px solid rgba(255,255,255,.1);}
+  .acc-item:first-child{border-top:none;}
+  .acc-head{display:flex;align-items:center;justify-content:space-between;padding:11px 2px;cursor:pointer;font-size:14px;font-weight:500;color:var(--text);}
+  .acc-head.active{color:#ffd86e;}
+  .acc-head .chev{color:var(--muted);font-size:13px;}
+  .acc-body{padding:2px 0 12px;}
 </style>
 </head>
 <body>
@@ -107,10 +137,10 @@
 // (nötig, sobald du Anbieter mit geheimem API-Key einbinden willst).
 const BACKEND_URL = "";
 
-const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless"];
-const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office"};
+const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global"];
+const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",metno_direct:"MET Norway (direkt)"};
 
-let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null };
+let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp" };
 
 // ====================== Statistik ======================
 function trim(arr){const a=arr.filter(v=>v!=null&&!Number.isNaN(v)).sort((x,y)=>x-y);return a.length>=4?a.slice(1,-1):a;}
@@ -190,8 +220,8 @@ async function fetchBackend(lat,lon,place){
 // Direkter Open-Meteo-Abruf + lokale Aggregation (Fallback)
 async function fetchDirect(lat,lon,place){
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
-    +`&hourly=temperature_2m,precipitation,precipitation_probability,cloud_cover,is_day`
-    +`&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max`
+    +`&hourly=temperature_2m,apparent_temperature,precipitation,precipitation_probability,cloud_cover,wind_speed_10m,wind_gusts_10m,is_day`
+    +`&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max`
     +`&models=${MODELS.join(",")}&forecast_days=7&timezone=auto`;
   const r=await fetch(url);
   if(!r.ok) throw new Error("Wetterdienst nicht erreichbar");
@@ -200,12 +230,131 @@ async function fetchDirect(lat,lon,place){
   const gather=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){const v=[];for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null)v.push(a[i]);}v.sort((x,y)=>x-y);res.push(v);}return res;};
   const gatherRaw=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){let v=null;for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null){v=a[i];break;}}res.push(v);}return res;};
   const used=MODELS.filter(m=>H["temperature_2m_"+m]).map(m=>MODEL_NAMES[m]||m);
-  return {
+  const norm={
     place:place||"Standort",models:used,
     raw:{hourly:H,daily:D},
-    hourly:{time:H.time,temp:gather(H,"temperature_2m"),pop:gather(H,"precipitation_probability"),precip:gather(H,"precipitation"),cloud:gather(H,"cloud_cover"),is_day:gatherRaw(H,"is_day")},
-    daily:{time:D.time,tmax:gather(D,"temperature_2m_max"),tmin:gather(D,"temperature_2m_min"),pop:gather(D,"precipitation_probability_max"),precip:gather(D,"precipitation_sum")}
+    hourly:{time:H.time,temp:gather(H,"temperature_2m"),feels:gather(H,"apparent_temperature"),pop:gather(H,"precipitation_probability"),precip:gather(H,"precipitation"),cloud:gather(H,"cloud_cover"),wind:gather(H,"wind_speed_10m"),gust:gather(H,"wind_gusts_10m"),is_day:gatherRaw(H,"is_day")},
+    daily:{time:D.time,tmax:gather(D,"temperature_2m_max"),tmin:gather(D,"temperature_2m_min"),feelsMax:gather(D,"apparent_temperature_max"),pop:gather(D,"precipitation_probability_max"),precip:gather(D,"precipitation_sum"),windMax:gather(D,"wind_speed_10m_max"),gustMax:gather(D,"wind_gusts_10m_max")}
   };
+  await mergeMetno(norm, lat, lon, om.utc_offset_seconds||0);   // optionale Zusatzquelle, kein n8n nötig
+  return norm;
+}
+
+// MET Norway direkt im Browser dazumischen (kein Key; optional – Fehler werden ignoriert).
+// Hinweis: met.no wünscht laut ToS eine eigene User-Agent-Kennung; der Browser kann diese
+// nicht setzen. Für hohe Last ist der n8n-Weg (mit Kontakt-E-Mail) sauberer.
+async function mergeMetno(norm, lat, lon, off){
+  try{
+    const r=await fetch(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`,{signal:AbortSignal.timeout(7000)});
+    if(!r.ok) return;
+    const mj=await r.json();
+    const series=(mj.properties&&mj.properties.timeseries)||[];
+    const time=norm.hourly.time;
+    const idxByTime={}; time.forEach((t,i)=>idxByTime[t]=i);
+    const localKey=iso=>{const d=new Date(iso);return new Date(d.getTime()+off*1000).toISOString().slice(0,13)+":00";};
+    const aT=new Array(time.length).fill(null),aC=new Array(time.length).fill(null),aW=new Array(time.length).fill(null),aP=new Array(time.length).fill(null);
+    const push=(arr,idx,v)=>{ if(arr[idx]&&v!=null){arr[idx].push(v);arr[idx].sort((a,b)=>a-b);} };
+    let any=false;
+    for(const t of series){
+      const idx=idxByTime[localKey(t.time)]; if(idx==null) continue;
+      const ins=(t.data&&t.data.instant&&t.data.instant.details)||{};
+      if(ins.air_temperature!=null){push(norm.hourly.temp,idx,ins.air_temperature); aT[idx]=ins.air_temperature;}
+      if(ins.cloud_area_fraction!=null){push(norm.hourly.cloud,idx,ins.cloud_area_fraction); aC[idx]=ins.cloud_area_fraction;}
+      if(ins.wind_speed!=null){const w=Math.round(ins.wind_speed*3.6*10)/10; push(norm.hourly.wind,idx,w); aW[idx]=w;}
+      const p=t.data&&t.data.next_1_hours&&t.data.next_1_hours.details&&t.data.next_1_hours.details.precipitation_amount;
+      if(p!=null){push(norm.hourly.precip,idx,p); aP[idx]=p;}
+      any=true;
+    }
+    if(any){
+      norm.models.push("MET Norway (direkt)");
+      norm.raw.hourly["temperature_2m_metno_direct"]=aT;
+      norm.raw.hourly["cloud_cover_metno_direct"]=aC;
+      norm.raw.hourly["wind_speed_10m_metno_direct"]=aW;
+      norm.raw.hourly["precipitation_metno_direct"]=aP;
+      norm.raw.hasMetno=true;
+    }
+  }catch(e){ /* met.no ist optional */ }
+}
+
+// ====================== Tagesdetail: Verlaufsdiagramme ======================
+function lineChart(vals, stroke, fillId, unit){
+  const W=320,H=84,pad=16,n=vals.length;
+  if(n<2) return "";
+  const mn=Math.min(...vals), mx=Math.max(...vals), span=Math.max(0.5,mx-mn);
+  const X=k=>pad+(k/(n-1))*(W-2*pad);
+  const Y=v=>pad+(1-(v-mn)/span)*(H-2*pad-10)+5;
+  const pts=vals.map((v,k)=>`${X(k).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  let fill="";
+  if(fillId){const area=`${X(0).toFixed(1)},${H-pad} ${pts} ${X(n-1).toFixed(1)},${H-pad}`;fill=`<polygon points="${area}" fill="url(#${fillId})"/>`;}
+  const iMax=vals.indexOf(mx),iMin=vals.indexOf(mn);
+  const lbl=(i,v,dy)=>`<text x="${X(i).toFixed(1)}" y="${(Y(v)+dy).toFixed(1)}" class="clab">${Math.round(v)}${unit}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart">
+    <defs><linearGradient id="${fillId||'tg'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${stroke}" stop-opacity=".45"/><stop offset="1" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs>
+    ${fill}
+    <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${lbl(iMax,mx,-6)}${mx!==mn?lbl(iMin,mn,14):''}
+  </svg>`;
+}
+function barChart(vals, color, maxScale){
+  const W=320,H=64,pad=10,n=vals.length;
+  const mx=maxScale||Math.max(1,...vals);
+  const slot=(W-2*pad)/n, bw=slot*0.6;
+  let bars="";
+  vals.forEach((v,k)=>{const h=(v/mx)*(H-2*pad);const x=pad+k*slot+(slot-bw)/2;const y=H-pad-h;bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5,h).toFixed(1)}" rx="2" fill="${color}" opacity="${v>0.01?0.9:0.2}"/>`;});
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart">${bars}</svg>`;
+}
+function hourAxis(hours){return `<div class="axis">`+hours.map(h=>`<span>${h%3===0?h:''}</span>`).join("")+`</div>`;}
+
+function buildAccordion(d){
+  const defs=[
+    {key:"temp",  label:"🌡 Temperaturverlauf",     chart:()=>lineChart(d.temps,"#ffd86e","tgrad","°")},
+    {key:"feels", label:"🌡 Gefühlte Temperatur",   chart:()=>lineChart(d.feels,"#ffb38a","fgrad","°")},
+    {key:"pop",   label:"💧 Regenwahrscheinlichkeit",chart:()=>barChart(d.pops,"#8fd2ff",100)},
+    {key:"precip",label:"🌧 Niederschlagsmenge (mm)",chart:()=>barChart(d.precs,"#5fa8e0",d.mmMax)},
+    {key:"wind",  label:"💨 Wind (km/h)",            chart:()=>lineChart(d.winds,"#a8d8b0",null,"")},
+    {key:"cloud", label:"☁️ Bewölkung (%)",          chart:()=>lineChart(d.clouds,"#cfd8e3",null,"%")}
+  ];
+  const openM=defs.some(m=>m.key===STATE.openMetric)?STATE.openMetric:"temp";
+  return defs.map(m=>{
+    const on=m.key===openM;
+    return `<div class="acc-item">`+
+      `<div class="acc-head${on?' active':''}" onclick="window.setMetric('${m.key}')"><span>${m.label}</span><span class="chev">${on?'▾':'▸'}</span></div>`+
+      (on?`<div class="acc-body">${m.chart()}${hourAxis(d.hours)}</div>`:"")+
+    `</div>`;
+  }).join("");
+}
+
+function buildDayDetail(N, d, s){
+  const date=N.daily.time[d];
+  const idxs=[];
+  N.hourly.time.forEach((t,i)=>{ if(t.slice(0,10)===date && N.hourly.temp[i] && N.hourly.temp[i].length) idxs.push(i); });
+  if(idxs.length<2) return `<div class="day-detail"><div class="detail-label">Keine Stundendaten für diesen Tag.</div></div>`;
+  const temps=idxs.map(i=>pick(N.hourly.temp[i],s,'temp'));
+  const feels=idxs.map(i=>pick(N.hourly.feels[i],s,'temp'));
+  const pops=idxs.map(i=>pick(N.hourly.pop[i],s,'rain')??0);
+  const precs=idxs.map(i=>pick(N.hourly.precip[i],s,'rain')??0);
+  const clouds=idxs.map(i=>pick(N.hourly.cloud[i],s,'rain')??0);
+  const winds=idxs.map(i=>pick(N.hourly.wind[i],s,'rain')??0);
+  const hours=idxs.map(i=>new Date(N.hourly.time[i]).getHours());
+  const hi=pick(N.daily.tmax[d],s,'temp'), lo=pick(N.daily.tmin[d],s,'temp');
+  const feelsMax=pick(N.daily.feelsMax[d],s,'temp');
+  const popMax=pick(N.daily.pop[d],s,'rain')??0, pSum=pick(N.daily.precip[d],s,'rain')??0;
+  const windMax=pick(N.daily.windMax[d],s,'rain')??0;
+  let strip="";
+  idxs.forEach((i,k)=>{const c=condition(pops[k],precs[k],clouds[k],N.hourly.is_day[i]===0);strip+=`<div class="hour"><div class="h-time">${hours[k]}</div><div class="h-ico">${c.ico}</div><div class="h-temp">${Math.round(temps[k])}°</div><div class="h-pop">${pops[k]>=20?Math.round(pops[k])+'%':''}</div></div>`;});
+  const mmMax=Math.max(0.5,...precs);
+  return `<div class="day-detail">
+    <div class="detail-stats">
+      <div><div class="v">${Math.round(hi)}°</div><div class="l">Höchst</div></div>
+      <div><div class="v">${Math.round(lo)}°</div><div class="l">Tief</div></div>
+      <div><div class="v">${Math.round(feelsMax)}°</div><div class="l">Gefühlt</div></div>
+      <div><div class="v">${Math.round(popMax)}%</div><div class="l">Regenrisiko</div></div>
+      <div><div class="v">${pSum.toFixed(1)}</div><div class="l">mm gesamt</div></div>
+      <div><div class="v">${Math.round(windMax)}</div><div class="l">Wind km/h</div></div>
+    </div>
+    <div class="hourly">${strip}</div>
+    <div class="acc">${buildAccordion({temps,feels,pops,precs,winds,clouds,mmMax,hours})}</div>
+  </div>`;
 }
 
 // ====================== Rohdaten-Vergleich (Testansicht) ======================
@@ -225,11 +374,14 @@ function buildRawHTML(N, s){
   }
   const metrics=[
     {base:"temperature_2m",label:"Temp",unit:"°",kind:"temp",dec:1},
+    {base:"apparent_temperature",label:"Gefühlt",unit:"°",kind:"temp",dec:0},
     {base:"precipitation_probability",label:"Regen%",unit:"%",kind:"rain",dec:0},
     {base:"precipitation",label:"mm",unit:"",kind:"rain",dec:1},
-    {base:"cloud_cover",label:"Wolken%",unit:"%",kind:"rain",dec:0}
+    {base:"cloud_cover",label:"Wolken%",unit:"%",kind:"rain",dec:0},
+    {base:"wind_speed_10m",label:"Wind",unit:"",kind:"rain",dec:0}
   ];
-  const pairsAt=(b)=>MODELS.map(m=>{const a=N.raw.hourly[b+"_"+m];return {name:MODEL_NAMES[m]||m,val:(a&&a[i]!=null)?a[i]:null};});
+  const RM=(N.raw&&N.raw.hasMetno)?MODELS.concat(["metno_direct"]):MODELS;   // met.no als Zusatzquelle mitzeigen
+  const pairsAt=(b)=>RM.map(m=>{const a=N.raw.hourly[b+"_"+m];return {name:MODEL_NAMES[m]||m,val:(a&&a[i]!=null)?a[i]:null};});
   // reglerabhängig: neutral = nichts entfernt; sonst nur der ungünstige Ausreißer
   const exSet=(pairs,kind)=>{
     const v=pairs.filter(p=>p.val!=null);
@@ -242,7 +394,7 @@ function buildRawHTML(N, s){
   const data=metrics.map(mt=>{const p=pairsAt(mt.base);return {mt,pairs:p,ex:exSet(p,mt.kind)};});
   const head=`<tr><th>Modell</th>${metrics.map(m=>`<th>${m.label}</th>`).join("")}</tr>`;
   let rows="";
-  MODELS.forEach((m,mi)=>{
+  RM.forEach((m,mi)=>{
     const name=MODEL_NAMES[m]||m;
     let cells="";
     data.forEach(d=>{
@@ -259,7 +411,7 @@ function buildRawHTML(N, s){
   return `<div class="card raw-card">${toggleBtn}
     <div class="raw-controls">Zeitpunkt: <select onchange="window.setRawHour(this.value)">${opts}</select></div>
     <div class="raw-note">Im neutralen Modus zählen alle Werte. Sobald du optimistisch/pessimistisch wählst, wird je Spalte nur der <span class="excl">ungünstige Ausreißer</span> entfernt. Unten: Median (neutral) und der bei deiner Reglerstellung angezeigte Wert.</div>
-    <table class="raw-tbl"><thead>${head}</thead><tbody>${rows}${medRow}${intRow}</tbody></table>
+    <div class="raw-scroll"><table class="raw-tbl"><thead>${head}</thead><tbody>${rows}${medRow}${intRow}</tbody></table></div>
   </div>`;
 }
 
@@ -274,6 +426,9 @@ function render(){
   const curPop =pick(H.pop[ci],s,'rain') ?? 0;
   const curMm  =pick(H.precip[ci],s,'rain') ?? 0;
   const curCloud=pick(H.cloud[ci],s,'rain') ?? 0;
+  const curFeels=pick(H.feels[ci],s,'temp');
+  const curWind=pick(H.wind[ci],s,'rain') ?? 0;
+  const curGust=pick(H.gust[ci],s,'rain') ?? 0;
   const isNight=(H.is_day[ci]===0);
   const cond=condition(curPop,curMm,curCloud,isNight);
   const tempSpread=spreadOf(H.temp[ci]);
@@ -308,7 +463,9 @@ function render(){
   dayData.forEach((dd,idx)=>{
     const name=idx===0?"Heute":dayNames[new Date(D.time[dd.i]).getDay()];
     const left=((dd.lo-gMin)/span)*100;const width=Math.max(8,((dd.hi-dd.lo)/span)*100);
-    daysHtml+=`<div class="day"><span class="d-name">${name}</span><span class="d-ico">${dd.c.ico}</span><span class="d-pop">${dd.pop>=20?Math.round(dd.pop)+"%":""}</span><span class="d-lo">${Math.round(dd.lo)}°</span><span class="d-bar"><i style="left:${left}%;width:${width}%"></i></span><span class="d-hi">${Math.round(dd.hi)}°</span></div>`;
+    const open=idx===STATE.openDay;
+    daysHtml+=`<div class="day${open?' open':''}" onclick="window.toggleDay(${idx})"><span class="d-name">${name}</span><span class="d-ico">${dd.c.ico}</span><span class="d-pop">${dd.pop>=20?Math.round(dd.pop)+"%":""}</span><span class="d-lo">${Math.round(dd.lo)}°</span><span class="d-bar"><i style="left:${left}%;width:${width}%"></i></span><span class="d-hi">${Math.round(dd.hi)}°</span><span class="d-chev">${open?'⌄':'›'}</span></div>`;
+    if(open) daysHtml+=buildDayDetail(N,dd.i,s);
   });
 
   document.getElementById("content").innerHTML=`
@@ -318,6 +475,7 @@ function render(){
       <div class="now-temp">${Math.round(curTemp)}<span class="deg">°</span></div>
       <div class="now-cond">${cond.txt}</div>
       <div class="now-range">H:${Math.round(hiToday)}°  T:${Math.round(loToday)}°</div>
+      <div class="now-extra">Gefühlt ${Math.round(curFeels)}° · Wind ${Math.round(curWind)} km/h${curGust>=curWind+5?` (Böen ${Math.round(curGust)})`:''}</div>
       <div class="vibe">${vibeText(s,cond,hiToday,loToday)}</div>
     </div>
     <div class="card">
@@ -369,12 +527,30 @@ function useGeo(){
   if(!navigator.geolocation)return;
   document.getElementById("content").innerHTML=`<div class="loading">Standort wird ermittelt…</div>`;
   navigator.geolocation.getCurrentPosition(
-    pos=>load(pos.coords.latitude,pos.coords.longitude,"Mein Standort"),
+    async pos=>{
+      const {latitude,longitude}=pos.coords;
+      const label=await reverseGeocode(latitude,longitude);
+      load(latitude,longitude,label);
+    },
     ()=>load(52.52,13.41,"Berlin")
   );
 }
+// Koordinaten -> Ortsname (schlüssellos, BigDataCloud)
+async function reverseGeocode(lat,lon){
+  try{
+    const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=de`,{signal:AbortSignal.timeout(6000)});
+    const j=await r.json();
+    const city=j.city||j.locality||j.principalSubdivision;
+    const region=(j.principalSubdivision&&j.principalSubdivision!==city)?j.principalSubdivision:"";
+    if(city) return region?`${city}, ${region}`:city;
+  }catch(_){}
+  return `${(+lat).toFixed(2)}, ${(+lon).toFixed(2)}`;   // Fallback: Koordinaten
+}
 window.toggleRaw=()=>{STATE.showRaw=!STATE.showRaw;render();};
 window.setRawHour=(v)=>{STATE.rawHour=+v;render();};
+window.toggleDay=(i)=>{STATE.openDay=(STATE.openDay===i)?null:i;render();};
+window.setMetric=(k)=>{STATE.openMetric=k;render();};
+
 // Start
 load(52.52,13.41,"Berlin");
 </script>
