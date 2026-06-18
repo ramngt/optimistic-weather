@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Optimist · Wetter</title>
+<style>
+  :root{
+    --bg-top:#2b5876; --bg-bot:#4e4376;
+    --card:rgba(255,255,255,0.14);
+    --text:#fff; --muted:rgba(255,255,255,0.7);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--text);
+    background:linear-gradient(165deg,var(--bg-top),var(--bg-bot));
+    transition:background 1.2s ease;
+    min-height:100%;display:flex;justify-content:center;padding:20px 14px 60px;
+  }
+  .app{width:100%;max-width:430px;}
+  .searchbar{display:flex;gap:8px;margin-bottom:18px;}
+  .searchbar input{flex:1;border:none;outline:none;border-radius:14px;padding:12px 14px;font-size:15px;background:var(--card);color:var(--text);backdrop-filter:blur(12px);}
+  .searchbar input::placeholder{color:var(--muted);}
+  .searchbar button{border:none;border-radius:14px;padding:0 14px;font-size:18px;background:var(--card);color:var(--text);cursor:pointer;backdrop-filter:blur(12px);}
+  .current{text-align:center;margin:10px 0 6px;}
+  .place{font-size:30px;font-weight:600;letter-spacing:.2px;}
+  .now-temp{font-size:96px;font-weight:200;line-height:1;margin:4px 0 0;}
+  .now-temp .deg{font-weight:200;}
+  .now-cond{font-size:20px;font-weight:500;margin-top:2px;}
+  .now-range{font-size:17px;color:var(--muted);margin-top:4px;}
+  .now-icon{font-size:42px;margin-top:6px;}
+  .vibe{margin:14px auto 0;max-width:330px;font-size:14px;line-height:1.4;opacity:.92;}
+  .mood{margin:22px 0 6px;background:var(--card);border-radius:20px;padding:16px 18px 18px;backdrop-filter:blur(12px);}
+  .mood-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;}
+  .mood-title{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);}
+  .mood-label{font-size:15px;font-weight:600;}
+  input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:6px;background:linear-gradient(90deg,#5b7cb4,#9aa6b8,#ffd86e);outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;}
+  input[type=range]::-moz-range-thumb{width:28px;height:28px;border:none;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;}
+  .mood-scale{display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--muted);}
+  .card{background:var(--card);border-radius:18px;padding:14px 16px;margin-top:16px;backdrop-filter:blur(12px);}
+  .card-title{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:10px;margin-bottom:6px;display:flex;gap:6px;align-items:center;}
+  .hourly{display:flex;gap:18px;overflow-x:auto;padding:10px 2px 4px;scrollbar-width:none;}
+  .hourly::-webkit-scrollbar{display:none;}
+  .hour{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:48px;}
+  .hour .h-time{font-size:14px;color:var(--muted);}
+  .hour .h-ico{font-size:24px;}
+  .hour .h-temp{font-size:18px;font-weight:600;}
+  .hour .h-pop{font-size:11px;color:#8fd2ff;min-height:14px;}
+  .day{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.08);}
+  .day:last-child{border-bottom:none;}
+  .day .d-name{width:62px;font-size:17px;font-weight:500;}
+  .day .d-ico{width:34px;font-size:22px;text-align:center;}
+  .day .d-pop{width:42px;font-size:12px;color:#8fd2ff;text-align:center;}
+  .day .d-bar{flex:1;height:5px;border-radius:5px;background:rgba(255,255,255,.18);position:relative;margin:0 8px;}
+  .day .d-bar i{position:absolute;height:100%;border-radius:5px;background:linear-gradient(90deg,#7ec8ff,#ffd86e,#ff9a5b);}
+  .day .d-lo{width:30px;text-align:right;color:var(--muted);font-size:15px;}
+  .day .d-hi{width:30px;text-align:left;font-size:15px;font-weight:600;}
+  .sources{font-size:12px;color:var(--muted);text-align:center;margin-top:18px;line-height:1.5;}
+  .sources b{color:var(--text);font-weight:600;}
+  .src-mode{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.12);}
+  .loading,.error{text-align:center;padding:40px 0;color:var(--muted);}
+  .error{color:#ffb4b4;}
+  .spread-chip{font-size:11px;color:var(--muted);margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;}
+  .raw-card{padding-top:6px;}
+  .raw-toggle{background:none;border:none;color:var(--text);font-size:14px;font-weight:600;cursor:pointer;padding:8px 0;width:100%;text-align:left;}
+  .raw-controls{font-size:13px;color:var(--muted);margin:4px 0 8px;}
+  .raw-controls select{background:rgba(255,255,255,.18);color:var(--text);border:none;border-radius:8px;padding:4px 8px;font-size:13px;}
+  .raw-controls select option{color:#000;}
+  .raw-note{font-size:11px;color:var(--muted);line-height:1.4;margin-bottom:10px;}
+  .raw-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  .raw-tbl th,.raw-tbl td{padding:5px 4px;text-align:right;}
+  .raw-tbl th:first-child,.raw-tbl td.mname,.raw-tbl .frow td:first-child{text-align:left;}
+  .raw-tbl th{color:var(--muted);font-weight:500;border-bottom:1px solid rgba(255,255,255,.15);}
+  .raw-tbl td.mname{color:var(--muted);font-size:11px;}
+  .raw-tbl td.excl{text-decoration:line-through;opacity:.45;}
+  .raw-tbl .frow td{border-top:1px solid rgba(255,255,255,.15);font-weight:600;}
+  .raw-tbl .frow.hi td{color:#ffd86e;}
+  span.excl{text-decoration:line-through;opacity:.6;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="searchbar">
+    <input id="q" type="text" placeholder="Ort suchen…" autocomplete="off">
+    <button id="goSearch" title="Suchen">🔍</button>
+    <button id="goGeo" title="Mein Standort">📍</button>
+  </div>
+  <div id="content"><div class="loading">Wetterdaten werden geladen…</div></div>
+  <div class="mood">
+    <div class="mood-head">
+      <span class="mood-title">Stimmung der Vorhersage</span>
+      <span class="mood-label" id="moodLabel">Neutral</span>
+    </div>
+    <input type="range" id="slider" min="-100" max="100" value="0" step="5">
+    <div class="mood-scale"><span>😟 Pessimistisch</span><span>Neutral</span><span>Optimistisch 😎</span></div>
+  </div>
+  <div class="sources" id="sources"></div>
+</div>
+
+<script>
+// ====================== Konfiguration ======================
+// Reiner Browser-Modus: keine Abhängigkeiten, einfach index.html öffnen.
+// Optional: hier die n8n-Webhook-URL eintragen, um ein zentrales Backend zu nutzen
+// (nötig, sobald du Anbieter mit geheimem API-Key einbinden willst).
+const BACKEND_URL = "";
+
+const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless"];
+const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office"};
+
+let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null };
+
+// ====================== Statistik ======================
+function trim(arr){const a=arr.filter(v=>v!=null&&!Number.isNaN(v)).sort((x,y)=>x-y);return a.length>=4?a.slice(1,-1):a;}
+function percentile(sorted,p){
+  if(!sorted||sorted.length===0) return null;
+  if(sorted.length===1) return sorted[0];
+  const idx=(p/100)*(sorted.length-1);const lo=Math.floor(idx),hi=Math.ceil(idx);
+  if(lo===hi) return sorted[lo];
+  return sorted[lo]+(sorted[hi]-sorted[lo])*(idx-lo);
+}
+// arr = Werteliste aller Modelle (Reihenfolge egal). kind: 'temp' optimist=wärmer, 'rain' optimist=trockener.
+// Neutral (slider==0): alle Werte, kein Ausreißer entfernt.
+// Optimistisch/pessimistisch: nur den UNGÜNSTIGEN Ausreißer entfernen, dann Richtung gutes Ende auswerten.
+function pick(arr, slider, kind){
+  let vals=(arr||[]).filter(v=>v!=null&&!Number.isNaN(v)).sort((a,b)=>a-b);
+  if(vals.length===0) return null;
+  const s=slider/100;
+  if(s!==0 && vals.length>=4){
+    if(kind==='temp') vals = s>0 ? vals.slice(1) : vals.slice(0,-1);   // optimist: kältesten weg / pessimist: wärmsten weg
+    else              vals = s>0 ? vals.slice(0,-1) : vals.slice(1);   // optimist: nassesten weg / pessimist: trockensten weg
+  }
+  let p=(kind==='temp')?50+s*40:50-s*40;
+  p=Math.max(0,Math.min(100,p));
+  return percentile(vals,p);
+}
+function spreadOf(sorted){ return (!sorted||sorted.length<2)?0:(sorted[sorted.length-1]-sorted[0]); }
+
+// ====================== Bedingung, Icons, Texte ======================
+function condition(pop,mm,cloud,isNight){
+  if(mm>=2||pop>=70) return {key:"rain-heavy",txt:"Regen",ico:"🌧️"};
+  if(mm>=0.3||pop>=45) return {key:"rain",txt:"Schauer möglich",ico:"🌦️"};
+  if(cloud>=75) return {key:"cloudy",txt:"Bewölkt",ico:"☁️"};
+  if(cloud>=35) return {key:"partly",txt:"Wolkig",ico:isNight?"☁️":"⛅️"};
+  return {key:"clear",txt:isNight?"Klar":"Sonnig",ico:isNight?"🌙":"☀️"};
+}
+function setBackground(condKey,slider){
+  const opt=slider/100;let top,bot;
+  if(condKey==="clear"){top="#2f80ed";bot="#56ccf2";}
+  else if(condKey==="partly"){top="#4a7fb5";bot="#7ab0d6";}
+  else if(condKey==="cloudy"){top="#5a6b7e";bot="#8a99a8";}
+  else{top="#3a4a5a";bot="#5b6b7a";}
+  if(opt>0.15){top=mix(top,"#ffb347",opt*0.4);bot=mix(bot,"#ffd86e",opt*0.45);}
+  if(opt<-0.15){top=mix(top,"#1c2530",-opt*0.5);bot=mix(bot,"#2b3a4a",-opt*0.5);}
+  document.body.style.setProperty("--bg-top",top);
+  document.body.style.setProperty("--bg-bot",bot);
+}
+function mix(a,b,t){const pa=hx(a),pb=hx(b);return `rgb(${Math.round(pa[0]+(pb[0]-pa[0])*t)},${Math.round(pa[1]+(pb[1]-pa[1])*t)},${Math.round(pa[2]+(pb[2]-pa[2])*t)})`;}
+function hx(c){if(c.startsWith("rgb")){const m=c.match(/\d+/g);return[+m[0],+m[1],+m[2]];}const n=parseInt(c.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function vibeText(slider,cond,hi,lo){
+  const c=cond.txt.toLowerCase();
+  if(slider>=60) return `Wird ein super Tag! ${cond.txt}, und die optimistische Lesart der Modelle verspricht angenehme ${Math.round(hi)}°. Genieß es!`;
+  if(slider>=20) return `Sieht gut aus: ${cond.txt}. Eher die freundlichere Seite der Vorhersagen.`;
+  if(slider>-20) return `Ausgewogene Vorhersage aus allen Modellen — ${c}, Mittelwert ohne Schönfärberei.`;
+  if(slider>-60) return `Lieber vorsichtig sein: ${cond.txt}. Wir gewichten die trübere Lesart.`;
+  return `Mach dich auf was gefasst. ${cond.txt}, kühle ${Math.round(lo)}° möglich — Schirm und Jacke schaden nie.`;
+}
+function moodLabel(s){if(s>=60)return"Sehr optimistisch";if(s>=20)return"Optimistisch";if(s>-20)return"Neutral";if(s>-60)return"Pessimistisch";return"Sehr pessimistisch";}
+
+// ====================== Datenquellen -> einheitliches Format ======================
+// Zielformat (norm): { place, models:[], hourly:{time,temp[][],pop[][],precip[][],cloud[][],is_day[]}, daily:{time,tmax[][],tmin[][],pop[][],precip[][]} }
+async function geocode(name){
+  const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=de`);
+  const j=await r.json();
+  if(!j.results||!j.results.length) throw new Error("Ort nicht gefunden");
+  const g=j.results[0];
+  return {lat:g.latitude,lon:g.longitude,label:`${g.name}${g.admin1?", "+g.admin1:""}`};
+}
+// Backend (n8n) liefert bereits das Zielformat
+async function fetchBackend(lat,lon,place){
+  const url=`${BACKEND_URL}?lat=${lat}&lon=${lon}&place=${encodeURIComponent(place||"")}`;
+  const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+  if(!r.ok) throw new Error("Backend-Status "+r.status);
+  const j=await r.json();
+  if(!j.hourly||!j.hourly.time) throw new Error("Backend-Antwort unerwartet");
+  return j;
+}
+// Direkter Open-Meteo-Abruf + lokale Aggregation (Fallback)
+async function fetchDirect(lat,lon,place){
+  const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+    +`&hourly=temperature_2m,precipitation,precipitation_probability,cloud_cover,is_day`
+    +`&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max`
+    +`&models=${MODELS.join(",")}&forecast_days=7&timezone=auto`;
+  const r=await fetch(url);
+  if(!r.ok) throw new Error("Wetterdienst nicht erreichbar");
+  const om=await r.json();
+  const H=om.hourly,D=om.daily;
+  const gather=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){const v=[];for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null)v.push(a[i]);}v.sort((x,y)=>x-y);res.push(v);}return res;};
+  const gatherRaw=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){let v=null;for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null){v=a[i];break;}}res.push(v);}return res;};
+  const used=MODELS.filter(m=>H["temperature_2m_"+m]).map(m=>MODEL_NAMES[m]||m);
+  return {
+    place:place||"Standort",models:used,
+    raw:{hourly:H,daily:D},
+    hourly:{time:H.time,temp:gather(H,"temperature_2m"),pop:gather(H,"precipitation_probability"),precip:gather(H,"precipitation"),cloud:gather(H,"cloud_cover"),is_day:gatherRaw(H,"is_day")},
+    daily:{time:D.time,tmax:gather(D,"temperature_2m_max"),tmin:gather(D,"temperature_2m_min"),pop:gather(D,"precipitation_probability_max"),precip:gather(D,"precipitation_sum")}
+  };
+}
+
+// ====================== Rohdaten-Vergleich (Testansicht) ======================
+function buildRawHTML(N, s){
+  const toggleBtn=`<button class="raw-toggle" onclick="window.toggleRaw()">${STATE.showRaw?'▾ Quellen ausblenden':'▸ Quellen vergleichen (Rohdaten)'}</button>`;
+  if(!STATE.showRaw) return `<div class="card raw-card">${toggleBtn}</div>`;
+  if(!N.raw) return `<div class="card raw-card">${toggleBtn}<div class="raw-note">Rohdaten nur im Direktmodus verfügbar.</div></div>`;
+  const times=N.raw.hourly.time;
+  const now=Date.now();
+  let baseIdx=times.findIndex(t=>new Date(t).getTime()>=now-3600000); if(baseIdx<0)baseIdx=0;
+  let i=STATE.rawHour; if(i==null||i<0||i>=times.length) i=baseIdx;
+  let opts="";
+  for(let k=baseIdx;k<Math.min(baseIdx+24,times.length);k++){
+    const t=new Date(times[k]);
+    const lbl=(k===baseIdx)?"Jetzt":t.toLocaleDateString('de-DE',{weekday:'short'})+" "+t.getHours()+"h";
+    opts+=`<option value="${k}" ${k===i?'selected':''}>${lbl}</option>`;
+  }
+  const metrics=[
+    {base:"temperature_2m",label:"Temp",unit:"°",kind:"temp",dec:1},
+    {base:"precipitation_probability",label:"Regen%",unit:"%",kind:"rain",dec:0},
+    {base:"precipitation",label:"mm",unit:"",kind:"rain",dec:1},
+    {base:"cloud_cover",label:"Wolken%",unit:"%",kind:"rain",dec:0}
+  ];
+  const pairsAt=(b)=>MODELS.map(m=>{const a=N.raw.hourly[b+"_"+m];return {name:MODEL_NAMES[m]||m,val:(a&&a[i]!=null)?a[i]:null};});
+  // reglerabhängig: neutral = nichts entfernt; sonst nur der ungünstige Ausreißer
+  const exSet=(pairs,kind)=>{
+    const v=pairs.filter(p=>p.val!=null);
+    if(s===0||v.length<4) return new Set();
+    const sd=[...v].sort((a,b)=>a.val-b.val);
+    const low=sd[0].name, high=sd[sd.length-1].name;
+    if(kind==='temp') return new Set([s>0?low:high]);   // optimist: kältesten / pessimist: wärmsten
+    return new Set([s>0?high:low]);                       // optimist: nassesten / pessimist: trockensten
+  };
+  const data=metrics.map(mt=>{const p=pairsAt(mt.base);return {mt,pairs:p,ex:exSet(p,mt.kind)};});
+  const head=`<tr><th>Modell</th>${metrics.map(m=>`<th>${m.label}</th>`).join("")}</tr>`;
+  let rows="";
+  MODELS.forEach((m,mi)=>{
+    const name=MODEL_NAMES[m]||m;
+    let cells="";
+    data.forEach(d=>{
+      const p=d.pairs[mi];
+      if(p.val==null){cells+=`<td>–</td>`;return;}
+      cells+=`<td class="${d.ex.has(name)?'excl':''}">${(+p.val).toFixed(d.mt.dec)}${d.mt.unit}</td>`;
+    });
+    rows+=`<tr><td class="mname">${name}</td>${cells}</tr>`;
+  });
+  const med=data.map(d=>pick(d.pairs.map(p=>p.val).filter(v=>v!=null),0,d.mt.kind));
+  const interp=data.map(d=>pick(d.pairs.map(p=>p.val).filter(v=>v!=null),s,d.mt.kind));
+  const medRow=`<tr class="frow"><td>Median (neutral)</td>${data.map((d,k)=>`<td>${med[k]==null?"–":med[k].toFixed(d.mt.dec)+d.mt.unit}</td>`).join("")}</tr>`;
+  const intRow=`<tr class="frow hi"><td>Angezeigt (Regler ${s>0?'+':''}${s})</td>${data.map((d,k)=>`<td>${interp[k]==null?"–":interp[k].toFixed(d.mt.dec)+d.mt.unit}</td>`).join("")}</tr>`;
+  return `<div class="card raw-card">${toggleBtn}
+    <div class="raw-controls">Zeitpunkt: <select onchange="window.setRawHour(this.value)">${opts}</select></div>
+    <div class="raw-note">Im neutralen Modus zählen alle Werte. Sobald du optimistisch/pessimistisch wählst, wird je Spalte nur der <span class="excl">ungünstige Ausreißer</span> entfernt. Unten: Median (neutral) und der bei deiner Reglerstellung angezeigte Wert.</div>
+    <table class="raw-tbl"><thead>${head}</thead><tbody>${rows}${medRow}${intRow}</tbody></table>
+  </div>`;
+}
+
+// ====================== Rendering ======================
+function render(){
+  const N=STATE.norm; if(!N) return;
+  const s=STATE.slider, H=N.hourly, D=N.daily, times=H.time;
+  const now=Date.now();
+  let ci=times.findIndex(t=>new Date(t).getTime()>=now-3600*1000); if(ci<0)ci=0;
+
+  const curTemp=pick(H.temp[ci],s,'temp');
+  const curPop =pick(H.pop[ci],s,'rain') ?? 0;
+  const curMm  =pick(H.precip[ci],s,'rain') ?? 0;
+  const curCloud=pick(H.cloud[ci],s,'rain') ?? 0;
+  const isNight=(H.is_day[ci]===0);
+  const cond=condition(curPop,curMm,curCloud,isNight);
+  const tempSpread=spreadOf(H.temp[ci]);
+  const hiToday=pick(D.tmax[0],s,'temp');
+  const loToday=pick(D.tmin[0],s,'temp');
+
+  setBackground(cond.key,s);
+  document.getElementById("moodLabel").textContent=moodLabel(s);
+
+  let hoursHtml="";
+  for(let i=ci;i<Math.min(ci+24,times.length);i++){
+    const t=new Date(times[i]);
+    const temp=pick(H.temp[i],s,'temp');
+    const pop=pick(H.pop[i],s,'rain') ?? 0;
+    const mm=pick(H.precip[i],s,'rain') ?? 0;
+    const cl=pick(H.cloud[i],s,'rain') ?? 0;
+    const c=condition(pop,mm,cl,H.is_day[i]===0);
+    const label=(i===ci)?"Jetzt":t.getHours()+"";
+    hoursHtml+=`<div class="hour"><div class="h-time">${label}</div><div class="h-ico">${c.ico}</div><div class="h-temp">${Math.round(temp)}°</div><div class="h-pop">${pop>=20?Math.round(pop)+"%":""}</div></div>`;
+  }
+
+  let gMin=Infinity,gMax=-Infinity;const dayData=[];
+  for(let i=0;i<D.time.length;i++){
+    const hi=pick(D.tmax[i],s,'temp');const lo=pick(D.tmin[i],s,'temp');
+    const pop=pick(D.pop[i],s,'rain') ?? 0;const mm=pick(D.precip[i],s,'rain') ?? 0;
+    const c=condition(pop,mm,pop>=45?80:40,false);
+    dayData.push({i,hi,lo,pop,c});if(lo<gMin)gMin=lo;if(hi>gMax)gMax=hi;
+  }
+  const span=Math.max(1,gMax-gMin);
+  const dayNames=["So","Mo","Di","Mi","Do","Fr","Sa"];
+  let daysHtml="";
+  dayData.forEach((dd,idx)=>{
+    const name=idx===0?"Heute":dayNames[new Date(D.time[dd.i]).getDay()];
+    const left=((dd.lo-gMin)/span)*100;const width=Math.max(8,((dd.hi-dd.lo)/span)*100);
+    daysHtml+=`<div class="day"><span class="d-name">${name}</span><span class="d-ico">${dd.c.ico}</span><span class="d-pop">${dd.pop>=20?Math.round(dd.pop)+"%":""}</span><span class="d-lo">${Math.round(dd.lo)}°</span><span class="d-bar"><i style="left:${left}%;width:${width}%"></i></span><span class="d-hi">${Math.round(dd.hi)}°</span></div>`;
+  });
+
+  document.getElementById("content").innerHTML=`
+    <div class="current">
+      <div class="place">${N.place}</div>
+      <div class="now-icon">${cond.ico}</div>
+      <div class="now-temp">${Math.round(curTemp)}<span class="deg">°</span></div>
+      <div class="now-cond">${cond.txt}</div>
+      <div class="now-range">H:${Math.round(hiToday)}°  T:${Math.round(loToday)}°</div>
+      <div class="vibe">${vibeText(s,cond,hiToday,loToday)}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">⏱ Stündlich <span class="spread-chip">Modell-Spanne jetzt: ±${(tempSpread/2).toFixed(1)}°</span></div>
+      <div class="hourly">${hoursHtml}</div>
+    </div>
+    <div class="card"><div class="card-title">📅 7-Tage-Vorhersage</div>${daysHtml}</div>
+    ${buildRawHTML(N,s)}`;
+
+  document.getElementById("sources").innerHTML=
+    `Ausgewertete Modelle (<b>${N.models.length}</b>): ${N.models.join(" · ")}<br>`+
+    `Ausreißer entfernt · `+
+    `<span class="src-mode">${STATE.mode}</span>`;
+}
+
+// ====================== Laden ======================
+async function load(lat,lon,label){
+  document.getElementById("content").innerHTML=`<div class="loading">Wetterdaten werden geladen…</div>`;
+  // 1. Backend versuchen (falls konfiguriert), 2. sonst Direktabruf
+  if(BACKEND_URL){
+    try{
+      STATE.norm=await fetchBackend(lat,lon,label);
+      STATE.mode="🔗 n8n-Backend";
+      return render();
+    }catch(e){ console.warn("Backend nicht erreichbar, Direktabruf:",e.message); }
+  }
+  try{
+    STATE.norm=await fetchDirect(lat,lon,label);
+    STATE.mode=BACKEND_URL?"⚡ Direktabruf (Backend offline)":"⚡ Direktabruf";
+    render();
+  }catch(e){
+    document.getElementById("content").innerHTML=`<div class="error">Fehler: ${e.message}</div>`;
+  }
+}
+
+// ====================== Events ======================
+document.getElementById("slider").addEventListener("input",e=>{STATE.slider=+e.target.value;if(STATE.norm)render();});
+document.getElementById("goSearch").addEventListener("click",doSearch);
+document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
+async function doSearch(){
+  const q=document.getElementById("q").value.trim();if(!q)return;
+  try{
+    document.getElementById("content").innerHTML=`<div class="loading">Suche „${q}“…</div>`;
+    const g=await geocode(q);load(g.lat,g.lon,g.label);
+  }catch(e){document.getElementById("content").innerHTML=`<div class="error">${e.message}</div>`;}
+}
+document.getElementById("goGeo").addEventListener("click",useGeo);
+function useGeo(){
+  if(!navigator.geolocation)return;
+  document.getElementById("content").innerHTML=`<div class="loading">Standort wird ermittelt…</div>`;
+  navigator.geolocation.getCurrentPosition(
+    pos=>load(pos.coords.latitude,pos.coords.longitude,"Mein Standort"),
+    ()=>load(52.52,13.41,"Berlin")
+  );
+}
+window.toggleRaw=()=>{STATE.showRaw=!STATE.showRaw;render();};
+window.setRawHour=(v)=>{STATE.rawHour=+v;render();};
+// Start
+load(52.52,13.41,"Berlin");
+</script>
+</body>
+</html>
