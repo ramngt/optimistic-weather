@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Optimist">
 <meta name="theme-color" content="#2b5876">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='40' fill='%232b5876'/%3E%3Ctext x='90' y='128' font-size='110' text-anchor='middle'%3E%E2%98%80%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <style>
   :root{
@@ -39,6 +40,9 @@
   .now-cond{font-size:20px;font-weight:500;margin-top:2px;}
   .now-range{font-size:17px;color:var(--muted);margin-top:4px;}
   .now-extra{font-size:14px;color:var(--muted);margin-top:4px;}
+  .confidence{font-size:13px;color:var(--muted);margin-top:8px;}
+  .conf-dots{letter-spacing:2px;margin-right:5px;}
+  .conf-dots.c4{color:#7ee2a8;}.conf-dots.c3{color:#bfe08f;}.conf-dots.c2{color:#ffd86e;}.conf-dots.c1{color:#ff9a6e;}
   .now-icon{font-size:42px;margin-top:6px;}
   .vibe{margin:14px auto 0;max-width:330px;font-size:14px;line-height:1.4;opacity:.92;}
   .mood{margin:22px 0 6px;background:var(--card);border-radius:20px;padding:16px 18px 18px;backdrop-filter:blur(12px);}
@@ -70,6 +74,8 @@
   .sources{font-size:12px;color:var(--muted);text-align:center;margin-top:18px;line-height:1.5;}
   .sources b{color:var(--text);font-weight:600;}
   .src-mode{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:8px;font-size:11px;background:rgba(255,255,255,.12);}
+  #toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(20px);background:rgba(0,0,0,.8);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;opacity:0;pointer-events:none;transition:all .25s ease;z-index:50;}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   .loading,.error{text-align:center;padding:40px 0;color:var(--muted);}
   .error{color:#ffb4b4;}
   .spread-chip{font-size:11px;color:var(--muted);margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;}
@@ -117,7 +123,9 @@
     <input id="q" type="text" placeholder="Ort suchen…" autocomplete="off">
     <button id="goSearch" title="Suchen">🔍</button>
     <button id="goGeo" title="Mein Standort">📍</button>
+    <button id="goShare" title="Teilen / Link kopieren">📤</button>
   </div>
+  <div id="toast"></div>
   <div id="content"><div class="loading">Wetterdaten werden geladen…</div></div>
   <div class="mood">
     <div class="mood-head">
@@ -140,7 +148,34 @@ const BACKEND_URL = "";
 const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global"];
 const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",metno_direct:"MET Norway (direkt)"};
 
-let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp" };
+let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"" };
+
+// ---- Zustand in URL speichern (teilbar / als Lesezeichen) ----
+function updateURL(){
+  try{
+    const p=new URLSearchParams();
+    if(STATE.lat!=null){ p.set("lat",(+STATE.lat).toFixed(4)); p.set("lon",(+STATE.lon).toFixed(4)); }
+    if(STATE.place) p.set("place",STATE.place);
+    p.set("mood",STATE.slider);
+    history.replaceState(null,"","?"+p.toString());
+  }catch(e){ /* z.B. file:// — ignorieren */ }
+}
+function toast(msg){
+  const t=document.getElementById("toast"); if(!t) return;
+  t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),1800);
+}
+async function shareApp(){
+  updateURL();
+  const url=location.href;
+  const text=`${STATE.place||"Wetter"} – Stimmung ${STATE.slider>0?"+":""}${STATE.slider}`;
+  if(navigator.share){
+    try{ await navigator.share({title:"Optimist · Wetter", text, url}); return; }
+    catch(e){ if(e.name==="AbortError") return; }
+  }
+  try{ await navigator.clipboard.writeText(url); toast("Link kopiert ✓"); }
+  catch(e){ window.prompt("Link kopieren:", url); }
+}
 
 // ====================== Statistik ======================
 function trim(arr){const a=arr.filter(v=>v!=null&&!Number.isNaN(v)).sort((x,y)=>x-y);return a.length>=4?a.slice(1,-1):a;}
@@ -198,6 +233,15 @@ function vibeText(slider,cond,hi,lo){
   return `Mach dich auf was gefasst. ${cond.txt}, kühle ${Math.round(lo)}° möglich — Schirm und Jacke schaden nie.`;
 }
 function moodLabel(s){if(s>=60)return"Sehr optimistisch";if(s>=20)return"Optimistisch";if(s>-20)return"Neutral";if(s>-60)return"Pessimistisch";return"Sehr pessimistisch";}
+// Vertrauens-Indikator: je kleiner die Temperatur-Spannbreite der Modelle, desto verlässlicher
+function confidence(spread){
+  let lvl,txt;
+  if(spread<2){lvl=4;txt="Sehr verlässlich";}
+  else if(spread<4){lvl=3;txt="Verlässlich";}
+  else if(spread<7){lvl=2;txt="Eher unsicher";}
+  else {lvl=1;txt="Sehr unsicher";}
+  return {lvl,txt,dots:"●●●●".slice(0,lvl)+"○○○○".slice(0,4-lvl),cls:"c"+lvl};
+}
 
 // ====================== Datenquellen -> einheitliches Format ======================
 // Zielformat (norm): { place, models:[], hourly:{time,temp[][],pop[][],precip[][],cloud[][],is_day[]}, daily:{time,tmax[][],tmin[][],pop[][],precip[][]} }
@@ -277,42 +321,64 @@ async function mergeMetno(norm, lat, lon, off){
 }
 
 // ====================== Tagesdetail: Verlaufsdiagramme ======================
-function lineChart(vals, stroke, fillId, unit){
+// Liniendiagramm mit optionalem Unsicherheits-Band (bandLo/bandHi = Modell-Min/Max je Punkt)
+function lineChart(vals, stroke, fillId, unit, bandLo, bandHi){
   const W=320,H=84,pad=16,n=vals.length;
   if(n<2) return "";
-  const mn=Math.min(...vals), mx=Math.max(...vals), span=Math.max(0.5,mx-mn);
+  const hasBand = bandLo && bandHi && bandLo.length===n;
+  let all=vals.filter(v=>v!=null);
+  if(hasBand){ for(let k=0;k<n;k++){ if(bandLo[k]!=null)all.push(bandLo[k]); if(bandHi[k]!=null)all.push(bandHi[k]); } }
+  const mn=Math.min(...all), mx=Math.max(...all), span=Math.max(0.5,mx-mn);
   const X=k=>pad+(k/(n-1))*(W-2*pad);
   const Y=v=>pad+(1-(v-mn)/span)*(H-2*pad-10)+5;
+  let band="";
+  if(hasBand){
+    const top=[], bot=[];
+    for(let k=0;k<n;k++){ if(bandHi[k]!=null) top.push(`${X(k).toFixed(1)},${Y(bandHi[k]).toFixed(1)}`); }
+    for(let k=n-1;k>=0;k--){ if(bandLo[k]!=null) bot.push(`${X(k).toFixed(1)},${Y(bandLo[k]).toFixed(1)}`); }
+    if(top.length>1) band=`<polygon points="${top.concat(bot).join(" ")}" fill="${stroke}" fill-opacity="0.16"/>`;
+  }
   const pts=vals.map((v,k)=>`${X(k).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   let fill="";
-  if(fillId){const area=`${X(0).toFixed(1)},${H-pad} ${pts} ${X(n-1).toFixed(1)},${H-pad}`;fill=`<polygon points="${area}" fill="url(#${fillId})"/>`;}
-  const iMax=vals.indexOf(mx),iMin=vals.indexOf(mn);
+  if(fillId && !hasBand){const area=`${X(0).toFixed(1)},${H-pad} ${pts} ${X(n-1).toFixed(1)},${H-pad}`;fill=`<polygon points="${area}" fill="url(#${fillId})"/>`;}
+  const lvMax=Math.max(...vals), lvMin=Math.min(...vals);
   const lbl=(i,v,dy)=>`<text x="${X(i).toFixed(1)}" y="${(Y(v)+dy).toFixed(1)}" class="clab">${Math.round(v)}${unit}</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" class="chart">
     <defs><linearGradient id="${fillId||'tg'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${stroke}" stop-opacity=".45"/><stop offset="1" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs>
-    ${fill}
+    ${fill}${band}
     <polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    ${lbl(iMax,mx,-6)}${mx!==mn?lbl(iMin,mn,14):''}
+    ${lbl(vals.indexOf(lvMax),lvMax,-6)}${lvMax!==lvMin?lbl(vals.indexOf(lvMin),lvMin,14):''}
   </svg>`;
 }
-function barChart(vals, color, maxScale){
+// Balkendiagramm mit optionalen Whiskern (lo/hi = Modell-Spannbreite je Balken)
+function barChart(vals, color, maxScale, lo, hi){
   const W=320,H=64,pad=10,n=vals.length;
-  const mx=maxScale||Math.max(1,...vals);
+  const hasW = lo && hi && lo.length===n;
+  let mx=maxScale||Math.max(1,...vals);
+  if(hasW){ const hv=hi.filter(v=>v!=null); if(hv.length){ const hm=Math.max(...hv); if(hm>mx) mx=hm; } }
   const slot=(W-2*pad)/n, bw=slot*0.6;
   let bars="";
-  vals.forEach((v,k)=>{const h=(v/mx)*(H-2*pad);const x=pad+k*slot+(slot-bw)/2;const y=H-pad-h;bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5,h).toFixed(1)}" rx="2" fill="${color}" opacity="${v>0.01?0.9:0.2}"/>`;});
+  vals.forEach((v,k)=>{
+    const h=(v/mx)*(H-2*pad);const x=pad+k*slot+(slot-bw)/2;const y=H-pad-h;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5,h).toFixed(1)}" rx="2" fill="${color}" opacity="${v>0.01?0.9:0.2}"/>`;
+    if(hasW && lo[k]!=null && hi[k]!=null && hi[k]>lo[k]+0.01){
+      const cx=x+bw/2, yLo=H-pad-(lo[k]/mx)*(H-2*pad), yHi=H-pad-(hi[k]/mx)*(H-2*pad);
+      bars+=`<line x1="${cx.toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yLo.toFixed(1)}" stroke="#fff" stroke-opacity="0.45" stroke-width="1.1"/>`;
+      bars+=`<line x1="${(cx-3).toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${(cx+3).toFixed(1)}" y2="${yHi.toFixed(1)}" stroke="#fff" stroke-opacity="0.45" stroke-width="1.1"/>`;
+    }
+  });
   return `<svg viewBox="0 0 ${W} ${H}" class="chart">${bars}</svg>`;
 }
 function hourAxis(hours){return `<div class="axis">`+hours.map(h=>`<span>${h%3===0?h:''}</span>`).join("")+`</div>`;}
 
 function buildAccordion(d){
   const defs=[
-    {key:"temp",  label:"🌡 Temperaturverlauf",     chart:()=>lineChart(d.temps,"#ffd86e","tgrad","°")},
-    {key:"feels", label:"🌡 Gefühlte Temperatur",   chart:()=>lineChart(d.feels,"#ffb38a","fgrad","°")},
-    {key:"pop",   label:"💧 Regenwahrscheinlichkeit",chart:()=>barChart(d.pops,"#8fd2ff",100)},
-    {key:"precip",label:"🌧 Niederschlagsmenge (mm)",chart:()=>barChart(d.precs,"#5fa8e0",d.mmMax)},
-    {key:"wind",  label:"💨 Wind (km/h)",            chart:()=>lineChart(d.winds,"#a8d8b0",null,"")},
-    {key:"cloud", label:"☁️ Bewölkung (%)",          chart:()=>lineChart(d.clouds,"#cfd8e3",null,"%")}
+    {key:"temp",  label:"🌡 Temperaturverlauf",     chart:()=>lineChart(d.temps,"#ffd86e","tgrad","°",d.bT.lo,d.bT.hi)},
+    {key:"feels", label:"🌡 Gefühlte Temperatur",   chart:()=>lineChart(d.feels,"#ffb38a","fgrad","°",d.bF.lo,d.bF.hi)},
+    {key:"pop",   label:"💧 Regenwahrscheinlichkeit",chart:()=>barChart(d.pops,"#8fd2ff",100,d.bP.lo,d.bP.hi)},
+    {key:"precip",label:"🌧 Niederschlagsmenge (mm)",chart:()=>barChart(d.precs,"#5fa8e0",d.mmMax,d.bPr.lo,d.bPr.hi)},
+    {key:"wind",  label:"💨 Wind (km/h)",            chart:()=>lineChart(d.winds,"#a8d8b0",null,"",d.bW.lo,d.bW.hi)},
+    {key:"cloud", label:"☁️ Bewölkung (%)",          chart:()=>lineChart(d.clouds,"#cfd8e3",null,"%",d.bC.lo,d.bC.hi)}
   ];
   const openM=defs.some(m=>m.key===STATE.openMetric)?STATE.openMetric:"temp";
   return defs.map(m=>{
@@ -343,6 +409,12 @@ function buildDayDetail(N, d, s){
   let strip="";
   idxs.forEach((i,k)=>{const c=condition(pops[k],precs[k],clouds[k],N.hourly.is_day[i]===0);strip+=`<div class="hour"><div class="h-time">${hours[k]}</div><div class="h-ico">${c.ico}</div><div class="h-temp">${Math.round(temps[k])}°</div><div class="h-pop">${pops[k]>=20?Math.round(pops[k])+'%':''}</div></div>`;});
   const mmMax=Math.max(0.5,...precs);
+  // Unsicherheits-Band: Modell-Min/Max je Stunde (volle Spannbreite, ungetrimmt)
+  const band=key=>({
+    lo: idxs.map(i=>{const a=N.hourly[key][i]; return a&&a.length?a[0]:null;}),
+    hi: idxs.map(i=>{const a=N.hourly[key][i]; return a&&a.length?a[a.length-1]:null;})
+  });
+  const bT=band("temp"),bF=band("feels"),bP=band("pop"),bPr=band("precip"),bW=band("wind"),bC=band("cloud");
   return `<div class="day-detail">
     <div class="detail-stats">
       <div><div class="v">${Math.round(hi)}°</div><div class="l">Höchst</div></div>
@@ -353,7 +425,7 @@ function buildDayDetail(N, d, s){
       <div><div class="v">${Math.round(windMax)}</div><div class="l">Wind km/h</div></div>
     </div>
     <div class="hourly">${strip}</div>
-    <div class="acc">${buildAccordion({temps,feels,pops,precs,winds,clouds,mmMax,hours})}</div>
+    <div class="acc">${buildAccordion({temps,feels,pops,precs,winds,clouds,mmMax,hours,bT,bF,bP,bPr,bW,bC})}</div>
   </div>`;
 }
 
@@ -432,6 +504,7 @@ function render(){
   const isNight=(H.is_day[ci]===0);
   const cond=condition(curPop,curMm,curCloud,isNight);
   const tempSpread=spreadOf(H.temp[ci]);
+  const conf=confidence(tempSpread);
   const hiToday=pick(D.tmax[0],s,'temp');
   const loToday=pick(D.tmin[0],s,'temp');
 
@@ -476,6 +549,7 @@ function render(){
       <div class="now-cond">${cond.txt}</div>
       <div class="now-range">H:${Math.round(hiToday)}°  T:${Math.round(loToday)}°</div>
       <div class="now-extra">Gefühlt ${Math.round(curFeels)}° · Wind ${Math.round(curWind)} km/h${curGust>=curWind+5?` (Böen ${Math.round(curGust)})`:''}</div>
+      <div class="confidence"><span class="conf-dots ${conf.cls}">${conf.dots}</span> Vertrauen: ${conf.txt} · Modelle ±${(tempSpread/2).toFixed(1)}°</div>
       <div class="vibe">${vibeText(s,cond,hiToday,loToday)}</div>
     </div>
     <div class="card">
@@ -493,26 +567,28 @@ function render(){
 
 // ====================== Laden ======================
 async function load(lat,lon,label){
+  STATE.lat=lat; STATE.lon=lon; STATE.place=label;
   document.getElementById("content").innerHTML=`<div class="loading">Wetterdaten werden geladen…</div>`;
   // 1. Backend versuchen (falls konfiguriert), 2. sonst Direktabruf
   if(BACKEND_URL){
     try{
       STATE.norm=await fetchBackend(lat,lon,label);
       STATE.mode="🔗 n8n-Backend";
-      return render();
+      render(); updateURL(); return;
     }catch(e){ console.warn("Backend nicht erreichbar, Direktabruf:",e.message); }
   }
   try{
     STATE.norm=await fetchDirect(lat,lon,label);
     STATE.mode=BACKEND_URL?"⚡ Direktabruf (Backend offline)":"⚡ Direktabruf";
-    render();
+    render(); updateURL();
   }catch(e){
     document.getElementById("content").innerHTML=`<div class="error">Fehler: ${e.message}</div>`;
   }
 }
 
 // ====================== Events ======================
-document.getElementById("slider").addEventListener("input",e=>{STATE.slider=+e.target.value;if(STATE.norm)render();});
+document.getElementById("slider").addEventListener("input",e=>{STATE.slider=+e.target.value;if(STATE.norm)render();updateURL();});
+document.getElementById("goShare").addEventListener("click",shareApp);
 document.getElementById("goSearch").addEventListener("click",doSearch);
 document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
 async function doSearch(){
@@ -551,8 +627,21 @@ window.setRawHour=(v)=>{STATE.rawHour=+v;render();};
 window.toggleDay=(i)=>{STATE.openDay=(STATE.openDay===i)?null:i;render();};
 window.setMetric=(k)=>{STATE.openMetric=k;render();};
 
-// Start
-load(52.52,13.41,"Berlin");
+// Service Worker für Offline-Modus registrieren (nur über HTTPS/localhost aktiv)
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
+
+// Start – Zustand aus URL übernehmen (falls geteilt/Lesezeichen)
+(function start(){
+  const q=new URLSearchParams(location.search);
+  const lat=parseFloat(q.get("lat")), lon=parseFloat(q.get("lon"));
+  const place=q.get("place")||"";
+  const mood=parseInt(q.get("mood"),10);
+  if(!isNaN(mood)){ STATE.slider=Math.max(-100,Math.min(100,mood)); document.getElementById("slider").value=STATE.slider; }
+  if(!isNaN(lat)&&!isNaN(lon)){ load(lat,lon, place||`${lat.toFixed(2)}, ${lon.toFixed(2)}`); }
+  else { load(52.52,13.41,"Berlin"); }
+})();
 </script>
 </body>
 </html>
