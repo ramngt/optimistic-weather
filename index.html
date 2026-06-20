@@ -141,8 +141,8 @@
 // (nötig, sobald du Anbieter mit geheimem API-Key einbinden willst).
 const BACKEND_URL = "";
 
-const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global"];
-const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",metno_direct:"MET Norway (direkt)"};
+const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global","ecmwf_aifs025_single"];
+const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",ecmwf_aifs025_single:"ECMWF AIFS (KI)",metno_direct:"MET Norway (direkt)"};
 
 let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"" };
 
@@ -242,20 +242,61 @@ async function fetchBackend(lat,lon,place){
   return j;
 }
 // Direkter Open-Meteo-Abruf + lokale Aggregation (Fallback)
+// Bias je Modell: mittlere Abweichung der jüngsten Vorhersagen von der ERA5-Reanalyse (Messung)
+function computeBiasMap(pastJson, eraJson){
+  const map={};
+  try{
+    const eh=eraJson&&eraJson.hourly; const ph=pastJson&&pastJson.hourly;
+    if(!eh||!eh.time||!ph||!ph.time) return map;
+    const truth={}; eh.time.forEach((t,i)=>{ if(eh.temperature_2m[i]!=null) truth[t]=eh.temperature_2m[i]; });
+    for(const m of MODELS){
+      const a=ph["temperature_2m_"+m]; if(!a) continue;
+      let s=0,n=0;
+      ph.time.forEach((t,i)=>{ const tr=truth[t]; if(tr!=null&&a[i]!=null){ s+=(a[i]-tr); n++; } });
+      if(n>=48){ map[m]=Math.max(-5,Math.min(5, s/n)); }   // gekappt auf ±5°
+    }
+  }catch(e){}
+  return map;
+}
+function applyBiasInPlace(obj, base, map){
+  for(const m of MODELS){
+    const off=map[m]; if(off==null) continue;
+    const a=obj[base+"_"+m]; if(!a) continue;
+    for(let i=0;i<a.length;i++){ if(a[i]!=null) a[i]=+(a[i]-off).toFixed(2); }
+  }
+}
 async function fetchDirect(lat,lon,place){
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
     +`&hourly=temperature_2m,apparent_temperature,precipitation,precipitation_probability,cloud_cover,wind_speed_10m,wind_gusts_10m,is_day`
     +`&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max`
     +`&models=${MODELS.join(",")}&forecast_days=7&timezone=auto`;
-  const r=await fetch(url);
+  // parallel: Bias-Daten (vergangene Modell-Vorhersagen + ERA5-Reanalyse als Messung)
+  const fmt=d=>d.toISOString().slice(0,10);
+  const eStart=fmt(new Date(Date.now()-10*864e5)), eEnd=fmt(new Date(Date.now()-1*864e5));
+  const pastUrl=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m&models=${MODELS.join(",")}&past_days=10&forecast_days=1&timezone=auto`;
+  const eraUrl=`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${eStart}&end_date=${eEnd}&hourly=temperature_2m&timezone=auto`;
+  const [r, pastJson, eraJson] = await Promise.all([
+    fetch(url),
+    fetch(pastUrl).then(x=>x.ok?x.json():null).catch(()=>null),
+    fetch(eraUrl).then(x=>x.ok?x.json():null).catch(()=>null)
+  ]);
   if(!r.ok) throw new Error("Wetterdienst nicht erreichbar");
   const om=await r.json();
   const H=om.hourly,D=om.daily;
+  // Bias-Korrektur auf Temperaturfelder anwenden (vor der Aggregation)
+  const biasMap=computeBiasMap(pastJson, eraJson);
+  const biasApplied=Object.keys(biasMap).length>0;
+  if(biasApplied){
+    applyBiasInPlace(H,"temperature_2m",biasMap);
+    applyBiasInPlace(D,"temperature_2m_max",biasMap);
+    applyBiasInPlace(D,"temperature_2m_min",biasMap);
+  }
   const gather=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){const v=[];for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null)v.push(a[i]);}v.sort((x,y)=>x-y);res.push(v);}return res;};
   const gatherRaw=(o,b)=>{const n=o.time.length,res=[];for(let i=0;i<n;i++){let v=null;for(const m of MODELS){const a=o[b+"_"+m];if(a&&a[i]!=null){v=a[i];break;}}res.push(v);}return res;};
   const used=MODELS.filter(m=>H["temperature_2m_"+m]).map(m=>MODEL_NAMES[m]||m);
   const norm={
     place:place||"Standort",models:used,
+    biasApplied,
     raw:{hourly:H,daily:D},
     hourly:{time:H.time,temp:gather(H,"temperature_2m"),feels:gather(H,"apparent_temperature"),pop:gather(H,"precipitation_probability"),precip:gather(H,"precipitation"),cloud:gather(H,"cloud_cover"),wind:gather(H,"wind_speed_10m"),gust:gather(H,"wind_gusts_10m"),is_day:gatherRaw(H,"is_day")},
     daily:{time:D.time,tmax:gather(D,"temperature_2m_max"),tmin:gather(D,"temperature_2m_min"),feelsMax:gather(D,"apparent_temperature_max"),pop:gather(D,"precipitation_probability_max"),precip:gather(D,"precipitation_sum"),windMax:gather(D,"wind_speed_10m_max"),gustMax:gather(D,"wind_gusts_10m_max")}
@@ -462,7 +503,7 @@ function buildRawHTML(N, s){
   const intRow=`<tr class="frow hi"><td>Angezeigt (Regler ${s>0?'+':''}${s})</td>${data.map((d,k)=>`<td>${interp[k]==null?"–":interp[k].toFixed(d.mt.dec)+d.mt.unit}</td>`).join("")}</tr>`;
   return `<div class="card raw-card">${toggleBtn}
     <div class="raw-controls">Zeitpunkt: <select onchange="window.setRawHour(this.value)">${opts}</select></div>
-    <div class="raw-note">Im neutralen Modus zählen alle Werte. Sobald du optimistisch/pessimistisch wählst, wird je Spalte nur der <span class="excl">ungünstige Ausreißer</span> entfernt. Unten: Median (neutral) und der bei deiner Reglerstellung angezeigte Wert.</div>
+    <div class="raw-note">Im neutralen Modus zählen alle Werte. Sobald du optimistisch/pessimistisch wählst, wird je Spalte nur der <span class="excl">ungünstige Ausreißer</span> entfernt. Unten: Median (neutral) und der bei deiner Reglerstellung angezeigte Wert.${N.biasApplied?" Temperaturen sind bias-korrigiert (ERA5-Abgleich der letzten Tage).":""}</div>
     <div class="raw-scroll"><table class="raw-tbl"><thead>${head}</thead><tbody>${rows}${medRow}${intRow}</tbody></table></div>
   </div>`;
 }
@@ -541,7 +582,7 @@ function render(){
 
   document.getElementById("sources").innerHTML=
     `Ausgewertete Modelle (<b>${N.models.length}</b>): ${N.models.join(" · ")}<br>`+
-    `Ausreißer entfernt · `+
+    `Reglerabhängige Auswertung${N.biasApplied?" · Temperatur bias-korrigiert (ERA5)":""} · `+
     `<span class="src-mode">${STATE.mode}</span>`;
 }
 
