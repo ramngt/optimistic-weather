@@ -38,9 +38,14 @@
   .searchbar input{flex:1;border:none;outline:none;border-radius:14px;padding:12px 14px;font-size:15px;background:var(--card);color:var(--text);backdrop-filter:blur(12px);}
   .searchbar input::placeholder{color:var(--muted);}
   .searchbar button{border:none;border-radius:14px;padding:0 14px;font-size:18px;background:var(--card);color:var(--text);cursor:pointer;backdrop-filter:blur(12px);}
-  .toggles{display:flex;gap:8px;margin-bottom:16px;}
-  .toggle{border:none;border-radius:14px;padding:8px 12px;font-size:13px;background:var(--card);color:var(--muted);cursor:pointer;backdrop-filter:blur(12px);transition:all .2s;}
-  .toggle.on{background:rgba(255,216,110,.28);color:var(--text);}
+  .switches{margin-top:26px;opacity:.9;}
+  .sw{display:flex;align-items:center;justify-content:space-between;padding:11px 4px;cursor:pointer;font-size:14px;color:var(--muted);border-top:1px solid rgba(255,255,255,.08);}
+  .sw:first-child{border-top:none;}
+  .sw input{position:absolute;opacity:0;width:0;height:0;}
+  .sw-track{position:relative;width:46px;height:28px;border-radius:14px;background:rgba(255,255,255,.22);transition:background .25s;flex:none;}
+  .sw-track::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .25s;box-shadow:0 1px 3px rgba(0,0,0,.35);}
+  .sw input:checked ~ .sw-track{background:#54c265;}
+  .sw input:checked ~ .sw-track::after{transform:translateX(18px);}
   .current{text-align:center;margin:10px 0 6px;}
   .place{font-size:30px;font-weight:600;letter-spacing:.2px;}
   .now-temp{font-size:96px;font-weight:200;line-height:1;margin:4px 0 0;}
@@ -135,10 +140,6 @@
     <button id="goSearch" title="Suchen">🔍</button>
     <button id="goGeo" title="Mein Standort">📍</button>
   </div>
-  <div class="toggles">
-    <button id="tgBg" class="toggle on">🖼 Hintergrund</button>
-    <button id="tgMusic" class="toggle">🎵 Musik</button>
-  </div>
   <div id="content"><div class="loading">Wetterdaten werden geladen…</div></div>
   <div class="mood">
     <div class="mood-head">
@@ -149,6 +150,12 @@
     <div class="mood-scale"><span>😟 Pessimistisch</span><span>Neutral</span><span>Optimistisch 😎</span></div>
   </div>
   <div class="sources" id="sources"></div>
+
+  <div class="switches">
+    <label class="sw"><span class="sw-label">🖼 Hintergrundbild</span><input type="checkbox" id="tgBg" checked><span class="sw-track"></span></label>
+    <label class="sw"><span class="sw-label">✨ Wetter-Effekte</span><input type="checkbox" id="tgFx" checked><span class="sw-track"></span></label>
+    <label class="sw"><span class="sw-label">🎵 Stimmungsmusik</span><input type="checkbox" id="tgMusic"><span class="sw-track"></span></label>
+  </div>
 </div>
 
 <script>
@@ -161,7 +168,7 @@ const BACKEND_URL = "";
 const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global","ecmwf_aifs025_single"];
 const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",ecmwf_aifs025_single:"ECMWF AIFS (KI)",metno_direct:"MET Norway (direkt)"};
 
-let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"", bgOn:true, musicOn:false };
+let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"", bgOn:true, fxOn:true, musicOn:false };
 
 // ---- Zustand in URL speichern (teilbar / als Lesezeichen) ----
 function updateURL(){
@@ -171,6 +178,7 @@ function updateURL(){
     if(STATE.place) p.set("place",STATE.place);
     p.set("mood",STATE.slider);
     p.set("bg",STATE.bgOn?1:0);
+    p.set("fx",STATE.fxOn?1:0);
     p.set("music",STATE.musicOn?1:0);
     history.replaceState(null,"","?"+p.toString());
   }catch(e){ /* z.B. file:// — ignorieren */ }
@@ -281,13 +289,15 @@ function applyMoodVisuals(slider){
 }
 
 // ====================== Wetter-Effekte (Canvas: Regen/Schnee) ======================
-let fx={type:"",particles:[],raf:0,intensity:1,_resize:false};
-function setFX(condKey, temp, slider){
+let fx={type:"",parts:[],raf:0,intensity:1,_resize:false};
+function setFX(condKey, temp, isNight, slider){
   const canvas=document.getElementById("fx"); if(!canvas) return;
   let type="";
   if(condKey==="rain"||condKey==="rain-heavy") type=(temp!=null&&temp<=1)?"snow":"rain";
+  else if(condKey==="clear") type=isNight?"stars":"sun";
+  else if(condKey==="cloudy"||condKey==="partly") type="clouds";
   const pess=slider<0?-slider/100:0;
-  fx.intensity=(condKey==="rain-heavy"?1.6:1)*(1+pess*0.5);
+  fx.intensity=(condKey==="rain-heavy"?1.6:1)*(1+pess*0.4);
   if(type!==fx.type){ fx.type=type; seedFX(canvas); }
 }
 function seedFX(canvas){
@@ -297,23 +307,36 @@ function seedFX(canvas){
   resize();
   if(!fx._resize){ fx._resize=true; addEventListener("resize",resize); }
   if(!fx.type){ ctx.clearRect(0,0,canvas.width,canvas.height); return; }
-  const base=fx.type==="snow"?90:150;
-  const count=Math.round(base*fx.intensity);
-  fx.particles=[]; for(let i=0;i<count;i++) fx.particles.push(newParticle(canvas));
+  const W=canvas.width,H=canvas.height,R=Math.random; fx.parts=[];
+  if(fx.type==="rain"){ const n=Math.round(150*fx.intensity); for(let i=0;i<n;i++) fx.parts.push({x:R()*W,y:R()*H,len:8+R()*12,vy:7+R()*6,vx:-1-R()*1.6}); }
+  else if(fx.type==="snow"){ const n=Math.round(90*fx.intensity); for(let i=0;i<n;i++) fx.parts.push({x:R()*W,y:R()*H,r:1+R()*2.5,vy:0.5+R()*1.2,vx:(R()-0.5)*0.6,sw:R()*6.28}); }
+  else if(fx.type==="stars"){ for(let i=0;i<70;i++) fx.parts.push({x:R()*W,y:R()*H*0.7,r:0.6+R()*1.4,ph:R()*6.28,sp:0.02+R()*0.05}); }
+  else if(fx.type==="sun"){ for(let i=0;i<24;i++) fx.parts.push({x:R()*W,y:R()*H,r:1+R()*2,vy:-0.2-R()*0.4,vx:(R()-0.5)*0.2,a:0.1+R()*0.2}); }
+  else if(fx.type==="clouds"){ for(let i=0;i<5;i++) fx.parts.push({x:R()*W,y:20+R()*H*0.45,r:60+R()*80,vx:0.15+R()*0.25,a:0.05+R()*0.07}); }
   loopFX(ctx,canvas);
 }
-function newParticle(c){
-  if(fx.type==="snow") return {x:Math.random()*c.width,y:Math.random()*c.height,r:1+Math.random()*2.5,vy:0.5+Math.random()*1.2,vx:(Math.random()-0.5)*0.6,sw:Math.random()*6.28};
-  return {x:Math.random()*c.width,y:Math.random()*c.height,len:8+Math.random()*12,vy:7+Math.random()*6,vx:-1-Math.random()*1.6};
-}
 function loopFX(ctx,c){
-  ctx.clearRect(0,0,c.width,c.height);
+  const W=c.width,H=c.height; ctx.clearRect(0,0,W,H);
   if(fx.type==="rain"){
     ctx.strokeStyle="rgba(180,200,230,0.5)"; ctx.lineWidth=1.1;
-    for(const p of fx.particles){ ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.vx,p.y+p.len); ctx.stroke(); p.x+=p.vx; p.y+=p.vy; if(p.y>c.height){p.y=-p.len;p.x=Math.random()*c.width;} }
+    for(const p of fx.parts){ ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.vx,p.y+p.len); ctx.stroke(); p.x+=p.vx; p.y+=p.vy; if(p.y>H){p.y=-p.len;p.x=Math.random()*W;} }
   } else if(fx.type==="snow"){
     ctx.fillStyle="rgba(255,255,255,0.85)";
-    for(const p of fx.particles){ p.sw+=0.02; p.x+=p.vx+Math.sin(p.sw)*0.4; p.y+=p.vy; if(p.y>c.height){p.y=-4;p.x=Math.random()*c.width;} ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
+    for(const p of fx.parts){ p.sw+=0.02; p.x+=p.vx+Math.sin(p.sw)*0.4; p.y+=p.vy; if(p.y>H){p.y=-4;p.x=Math.random()*W;} ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
+  } else if(fx.type==="stars"){
+    for(const p of fx.parts){ p.ph+=p.sp; const tw=0.5+0.5*Math.sin(p.ph); ctx.fillStyle=`rgba(255,255,255,${(0.25+tw*0.6).toFixed(2)})`; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
+  } else if(fx.type==="sun"){
+    const g=ctx.createRadialGradient(W*0.8,H*0.16,10,W*0.8,H*0.16,Math.max(W,H)*0.55);
+    g.addColorStop(0,"rgba(255,236,150,0.33)"); g.addColorStop(0.4,"rgba(255,210,120,0.12)"); g.addColorStop(1,"rgba(255,210,120,0)");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="rgba(255,243,205,0.8)";
+    for(const p of fx.parts){ p.x+=p.vx; p.y+=p.vy; if(p.y<-5){p.y=H+5;p.x=Math.random()*W;} ctx.globalAlpha=p.a; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
+    ctx.globalAlpha=1;
+  } else if(fx.type==="clouds"){
+    for(const p of fx.parts){ p.x+=p.vx; if(p.x-p.r>W){p.x=-p.r;p.y=20+Math.random()*H*0.45;}
+      const g=ctx.createRadialGradient(p.x,p.y,p.r*0.2,p.x,p.y,p.r);
+      g.addColorStop(0,`rgba(255,255,255,${p.a})`); g.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
   } else { return; }
   fx.raf=requestAnimationFrame(()=>loopFX(ctx,c));
 }
@@ -323,14 +346,21 @@ let audio={ctx:null,master:null,filter:null,timer:null,started:false};
 function startMusic(){
   if(audio.started) return;
   const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
-  audio.ctx=new AC();
-  if(audio.ctx.state==="suspended"){ audio.ctx.resume().catch(()=>{}); }
-  audio.master=audio.ctx.createGain(); audio.master.gain.value=0; audio.master.connect(audio.ctx.destination);
-  audio.master.gain.linearRampToValueAtTime(0.16, audio.ctx.currentTime+2.5);
-  audio.filter=audio.ctx.createBiquadFilter(); audio.filter.type="lowpass"; audio.filter.frequency.value=1000; audio.filter.connect(audio.master);
-  audio.started=true;
-  updateMusic(STATE.slider, "");
-  scheduleMusic();
+  if(!audio.ctx) audio.ctx=new AC();
+  const ctx=audio.ctx;
+  const begin=()=>{
+    if(audio.started) return;
+    audio.master=ctx.createGain();
+    audio.master.gain.setValueAtTime(0.0001, ctx.currentTime);
+    audio.master.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime+2);
+    audio.master.connect(ctx.destination);
+    audio.filter=ctx.createBiquadFilter(); audio.filter.type="lowpass"; audio.filter.frequency.value=1200; audio.filter.connect(audio.master);
+    audio.started=true;
+    updateMusic(STATE.slider, "");
+    playPad(musFreq(0),3.6);          // sofort hörbarer erster Ton
+    scheduleMusic();
+  };
+  if(ctx.state==="suspended"){ ctx.resume().then(begin).catch(begin); } else { begin(); }
 }
 function stopMusic(){
   if(!audio.started) return;
@@ -344,7 +374,7 @@ function musScale(){
   const major=[0,2,4,7,9,12,14,16], minor=[0,3,5,7,10,12,15];
   return STATE.slider>=0?major:minor;
 }
-function musFreq(semi){ return 110*Math.pow(2,semi/12); }
+function musFreq(semi){ return 220*Math.pow(2,semi/12); }   // A3-Basis: bleibt auf Handy-Lautsprechern hörbar
 function playPad(freq,dur){
   const c=audio.ctx; if(!c||!audio.started) return;
   const o1=c.createOscillator(),o2=c.createOscillator(),g=c.createGain();
@@ -358,7 +388,7 @@ function playPad(freq,dur){
 function scheduleMusic(){
   if(!audio.started) return;
   const sc=musScale();
-  const oct=STATE.slider>=20?12:(STATE.slider<=-40?-12:0);
+  const oct=STATE.slider>=20?12:0;   // optimistisch eine Oktave höher; nicht unter A3 (Handy-Lautsprecher)
   playPad(musFreq(sc[Math.floor(Math.random()*sc.length)]+oct),3.6);
   if(Math.random()<0.5){ const n=sc[Math.floor(Math.random()*sc.length)]+oct; setTimeout(()=>playPad(musFreq(n),3.2),650); }
   const o=STATE.slider/100;
@@ -699,7 +729,7 @@ function render(){
 
   setBackground(cond.key,s);
   applyMoodVisuals(s);
-  setFX(STATE.bgOn?cond.key:"", curTemp, s);
+  setFX(STATE.fxOn?cond.key:"", curTemp, isNight, s);
   if(STATE.musicOn) updateMusic(s, cond.key);
   document.getElementById("moodLabel").textContent=moodLabel(s);
 
@@ -795,8 +825,9 @@ async function load(lat,lon,label){
 
 // ====================== Events ======================
 document.getElementById("slider").addEventListener("input",e=>{STATE.slider=+e.target.value;if(STATE.norm)render();updateURL();});
-document.getElementById("tgBg").addEventListener("click",window.toggleBg);
-document.getElementById("tgMusic").addEventListener("click",window.toggleMusic);
+document.getElementById("tgBg").addEventListener("change",()=>window.toggleBg());
+document.getElementById("tgFx").addEventListener("change",()=>window.toggleFx());
+document.getElementById("tgMusic").addEventListener("change",()=>window.toggleMusic());
 document.getElementById("goSearch").addEventListener("click",doSearch);
 document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
 async function doSearch(){
@@ -835,23 +866,38 @@ window.setRawHour=(v)=>{STATE.rawHour=+v;render();};
 window.toggleDay=(i)=>{STATE.openDay=(STATE.openDay===i)?null:i;render();};
 window.setMetric=(k)=>{STATE.openMetric=k;render();};
 window.toggleBg=()=>{
-  STATE.bgOn=!STATE.bgOn;
-  document.getElementById("tgBg").classList.toggle("on",STATE.bgOn);
+  STATE.bgOn=document.getElementById("tgBg").checked;
   const bg=document.getElementById("bg");
   if(STATE.bgOn){ if(STATE.lat!=null) setLocationBg(STATE.lat,STATE.lon,STATE.place); }
   else if(bg){ bg.classList.remove("show"); }
   if(STATE.norm) render();
   updateURL();
 };
+window.toggleFx=()=>{
+  STATE.fxOn=document.getElementById("tgFx").checked;
+  if(STATE.norm) render();
+  updateURL();
+};
 window.toggleMusic=()=>{
-  STATE.musicOn=!STATE.musicOn;
-  document.getElementById("tgMusic").classList.toggle("on",STATE.musicOn);
+  STATE.musicOn=document.getElementById("tgMusic").checked;
   if(STATE.musicOn){ startMusic(); } else { stopMusic(); }
   updateURL();
 };
 
-// Service Worker für Offline-Modus registrieren (nur über HTTPS/localhost aktiv)
+// Audio-Kontext bei erster Nutzer-Interaktion aufwecken (Safari/iOS Autoplay-Regeln)
+let _audioPrimed=false;
+function primeAudio(){
+  if(_audioPrimed) return; _audioPrimed=true;
+  const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+  try{ if(!audio.ctx) audio.ctx=new AC(); if(audio.ctx.state==="suspended") audio.ctx.resume().catch(()=>{}); }catch(e){}
+}
+document.addEventListener("pointerdown",primeAudio,{once:true});
+document.addEventListener("touchend",primeAudio,{once:true});
+
+// Service Worker registrieren; neue Version automatisch übernehmen
 if("serviceWorker" in navigator){
+  let refreshing=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{ if(refreshing) return; refreshing=true; location.reload(); });
   window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 }
 
@@ -862,9 +908,10 @@ if("serviceWorker" in navigator){
   const place=q.get("place")||"";
   const mood=parseInt(q.get("mood"),10);
   if(!isNaN(mood)){ STATE.slider=Math.max(-100,Math.min(100,mood)); document.getElementById("slider").value=STATE.slider; }
-  if(q.get("bg")==="0"){ STATE.bgOn=false; document.getElementById("tgBg").classList.remove("on"); }
+  if(q.get("bg")==="0"){ STATE.bgOn=false; document.getElementById("tgBg").checked=false; }
+  if(q.get("fx")==="0"){ STATE.fxOn=false; document.getElementById("tgFx").checked=false; }
   if(q.get("music")==="1"){
-    STATE.musicOn=true; document.getElementById("tgMusic").classList.add("on");
+    STATE.musicOn=true; document.getElementById("tgMusic").checked=true;
     const startOnce=()=>{ if(STATE.musicOn) startMusic(); document.removeEventListener("pointerdown",startOnce); };
     document.addEventListener("pointerdown",startOnce);   // Autoplay-Regeln: erst bei erster Berührung
   }

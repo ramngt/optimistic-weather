@@ -1,9 +1,9 @@
-// Optimist · Wetter — Service Worker
-// Strategie:
-//  - App-Dateien (HTML/Manifest): stale-while-revalidate (startet sofort, aktualisiert im Hintergrund)
-//  - Wetterdaten (APIs): network-first (online IMMER frisch; offline letzte gespeicherte Antwort)
-const SHELL = "optimist-shell-v2";
-const DATA  = "optimist-data-v2";
+// Optimist · Wetter — Service Worker (v3)
+// HTML/Navigation: network-first  -> online IMMER neueste App, offline letzter Stand
+// sonstige App-Dateien:           stale-while-revalidate
+// Wetterdaten (APIs):             network-first
+const SHELL = "optimist-shell-v3";
+const DATA  = "optimist-data-v3";
 const SHELL_FILES = ["./", "./index.html", "./manifest.webmanifest"];
 const DATA_HOSTS = /(open-meteo\.com|api\.met\.no|bigdatacloud\.net)/;
 
@@ -24,23 +24,28 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // --- Wetterdaten: network-first ---
+  // Wetterdaten: network-first
   if (DATA_HOSTS.test(url.hostname)) {
     e.respondWith(
-      fetch(req)
-        .then(res => { const copy = res.clone(); caches.open(DATA).then(c => c.put(req, copy)); return res; })
-        .catch(() => caches.match(req))   // offline: letzte gespeicherte Antwort
+      fetch(req).then(res => { const c = res.clone(); caches.open(DATA).then(x => x.put(req, c)); return res; })
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  // --- App-Shell (eigene Herkunft): stale-while-revalidate ---
   if (url.origin === location.origin) {
+    // HTML/Seitenaufruf: network-first
+    if (req.mode === "navigate" || req.destination === "document") {
+      e.respondWith(
+        fetch(req).then(res => { const c = res.clone(); caches.open(SHELL).then(x => x.put(req, c)); return res; })
+          .catch(() => caches.match(req).then(r => r || caches.match("./index.html")))
+      );
+      return;
+    }
+    // übrige eigene Dateien: stale-while-revalidate
     e.respondWith(
       caches.match(req).then(cached => {
-        const net = fetch(req)
-          .then(res => { const copy = res.clone(); caches.open(SHELL).then(c => c.put(req, copy)); return res; })
-          .catch(() => cached);
+        const net = fetch(req).then(res => { const c = res.clone(); caches.open(SHELL).then(x => x.put(req, c)); return res; }).catch(() => cached);
         return cached || net;
       })
     );
