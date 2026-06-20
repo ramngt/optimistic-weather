@@ -28,11 +28,19 @@
     min-height:100%;display:flex;justify-content:center;
     padding:calc(20px + env(safe-area-inset-top)) 14px calc(60px + env(safe-area-inset-bottom));
   }
-  .app{width:100%;max-width:430px;}
+  .app{width:100%;max-width:430px;position:relative;z-index:1;}
+  #bg{position:fixed;inset:0;z-index:-3;background-size:cover;background-position:center;opacity:0;transition:opacity 1.2s ease, filter 1s ease;}
+  #bg.show{opacity:1;}
+  #bg-tint{position:fixed;inset:0;z-index:-2;pointer-events:none;transition:background 1s ease;background:linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.5));}
+  #fx{position:fixed;inset:0;z-index:-1;pointer-events:none;}
+  .current{text-shadow:0 1px 10px rgba(0,0,0,.35);}
   .searchbar{display:flex;gap:8px;margin-bottom:18px;}
   .searchbar input{flex:1;border:none;outline:none;border-radius:14px;padding:12px 14px;font-size:15px;background:var(--card);color:var(--text);backdrop-filter:blur(12px);}
   .searchbar input::placeholder{color:var(--muted);}
   .searchbar button{border:none;border-radius:14px;padding:0 14px;font-size:18px;background:var(--card);color:var(--text);cursor:pointer;backdrop-filter:blur(12px);}
+  .toggles{display:flex;gap:8px;margin-bottom:16px;}
+  .toggle{border:none;border-radius:14px;padding:8px 12px;font-size:13px;background:var(--card);color:var(--muted);cursor:pointer;backdrop-filter:blur(12px);transition:all .2s;}
+  .toggle.on{background:rgba(255,216,110,.28);color:var(--text);}
   .current{text-align:center;margin:10px 0 6px;}
   .place{font-size:30px;font-weight:600;letter-spacing:.2px;}
   .now-temp{font-size:96px;font-weight:200;line-height:1;margin:4px 0 0;}
@@ -118,11 +126,18 @@
 </style>
 </head>
 <body>
+<div id="bg"></div>
+<div id="bg-tint"></div>
+<canvas id="fx"></canvas>
 <div class="app">
   <div class="searchbar">
     <input id="q" type="text" placeholder="Ort suchen…" autocomplete="off">
     <button id="goSearch" title="Suchen">🔍</button>
     <button id="goGeo" title="Mein Standort">📍</button>
+  </div>
+  <div class="toggles">
+    <button id="tgBg" class="toggle on">🖼 Hintergrund</button>
+    <button id="tgMusic" class="toggle">🎵 Musik</button>
   </div>
   <div id="content"><div class="loading">Wetterdaten werden geladen…</div></div>
   <div class="mood">
@@ -146,7 +161,7 @@ const BACKEND_URL = "";
 const MODELS = ["icon_seamless","gfs_seamless","ecmwf_ifs025","gem_seamless","meteofrance_seamless","jma_seamless","ukmo_seamless","metno_seamless","knmi_seamless","dmi_seamless","bom_access_global","cma_grapes_global","ecmwf_aifs025_single"];
 const MODEL_NAMES = {icon_seamless:"DWD ICON",gfs_seamless:"NOAA GFS",ecmwf_ifs025:"ECMWF",gem_seamless:"GEM (CA)",meteofrance_seamless:"Météo-France",jma_seamless:"JMA (JP)",ukmo_seamless:"UK Met Office",metno_seamless:"MET Norway",knmi_seamless:"KNMI (NL)",dmi_seamless:"DMI (DK)",bom_access_global:"BOM (AU)",cma_grapes_global:"CMA (CN)",ecmwf_aifs025_single:"ECMWF AIFS (KI)",metno_direct:"MET Norway (direkt)"};
 
-let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"" };
+let STATE = { norm:null, slider:0, mode:"", showRaw:false, rawHour:null, openDay:null, openMetric:"temp", lat:null, lon:null, place:"", bgOn:true, musicOn:false };
 
 // ---- Zustand in URL speichern (teilbar / als Lesezeichen) ----
 function updateURL(){
@@ -155,6 +170,8 @@ function updateURL(){
     if(STATE.lat!=null){ p.set("lat",(+STATE.lat).toFixed(4)); p.set("lon",(+STATE.lon).toFixed(4)); }
     if(STATE.place) p.set("place",STATE.place);
     p.set("mood",STATE.slider);
+    p.set("bg",STATE.bgOn?1:0);
+    p.set("music",STATE.musicOn?1:0);
     history.replaceState(null,"","?"+p.toString());
   }catch(e){ /* z.B. file:// — ignorieren */ }
 }
@@ -206,6 +223,155 @@ function setBackground(condKey,slider){
 }
 function mix(a,b,t){const pa=hx(a),pb=hx(b);return `rgb(${Math.round(pa[0]+(pb[0]-pa[0])*t)},${Math.round(pa[1]+(pb[1]-pa[1])*t)},${Math.round(pa[2]+(pb[2]-pa[2])*t)})`;}
 function hx(c){if(c.startsWith("rgb")){const m=c.match(/\d+/g);return[+m[0],+m[1],+m[2]];}const n=parseInt(c.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255];}
+
+// ====================== Ortsbild (Wikimedia Commons Geosuche, kein Key) ======================
+let bgToken=0;
+async function setLocationBg(lat,lon,place){
+  const myToken=++bgToken;
+  const bg=document.getElementById("bg"); if(!bg) return;
+  const name=(place||"").split(",")[0].trim();
+  const setImg=(url)=>{
+    if(myToken!==bgToken||!url) return;
+    const img=new Image();
+    img.onload=()=>{ if(myToken!==bgToken) return; bg.style.backgroundImage=`url("${url}")`; bg.classList.add("show"); };
+    img.onerror=()=>{ if(myToken===bgToken) tryGeo(); };   // Bild defekt -> Geosuche
+    img.src=url;
+  };
+  // repräsentatives Bild über Ortsname: Wikipedia -> Wikidata-Bild (P18)
+  async function wikidata(lang,nm){
+    try{
+      const pp=await (await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&prop=pageprops&titles=${encodeURIComponent(nm)}&format=json&origin=*&redirects=1`)).json();
+      const page=Object.values((pp.query&&pp.query.pages)||{})[0];
+      const qid=page&&page.pageprops&&page.pageprops.wikibase_item; if(!qid) return null;
+      const wd=await (await fetch(`https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${qid}&property=P18&format=json&origin=*`)).json();
+      const v=wd.claims&&wd.claims.P18&&wd.claims.P18[0]&&wd.claims.P18[0].mainsnak.datavalue&&wd.claims.P18[0].mainsnak.datavalue.value;
+      return v?`https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(v.replace(/ /g,"_"))}?width=1280`:null;
+    }catch(e){ return null; }
+  }
+  // Fallback: nächstes Foto per Geosuche um die Koordinaten
+  async function tryGeo(){
+    try{
+      const u=`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=geosearch&ggscoord=${lat}|${lon}&ggsradius=10000&ggslimit=14&ggsnamespace=6&prop=imageinfo&iiprop=url|mime&iiurlwidth=1280`;
+      const j=await (await fetch(u)).json();
+      const cand=Object.values((j.query&&j.query.pages)||{}).map(p=>p.imageinfo&&p.imageinfo[0]).filter(Boolean)
+        .filter(ii=>/jpeg|jpg|png/i.test(ii.mime||"")&&ii.thumburl).map(ii=>ii.thumburl);
+      if(myToken!==bgToken) return;
+      if(cand.length) setImg(cand[0]); else bg.classList.remove("show");
+    }catch(e){}
+  }
+  let url=null;
+  if(name && !/^\d/.test(name)) url=(await wikidata("de",name))||(await wikidata("en",name));
+  if(myToken!==bgToken) return;
+  if(url) setImg(url); else tryGeo();
+}
+
+// ====================== Stimmungs-Filter über dem Bild ======================
+function applyMoodVisuals(slider){
+  const tint=document.getElementById("bg-tint");
+  const bg=document.getElementById("bg");
+  if(!STATE.bgOn){ if(tint) tint.style.background="transparent"; return; }
+  const o=slider/100;
+  if(bg) bg.style.filter=`brightness(${(1+o*0.18).toFixed(2)}) saturate(${Math.max(0.4,1+o*0.4).toFixed(2)}) contrast(${(1-o*0.05).toFixed(2)})`;
+  if(tint){
+    const mood = o>=0
+      ? `linear-gradient(180deg, rgba(255,190,90,${(o*0.22).toFixed(2)}), rgba(255,150,60,${(o*0.10).toFixed(2)}))`
+      : `linear-gradient(180deg, rgba(20,30,55,${(-o*0.30).toFixed(2)}), rgba(8,12,26,${(-o*0.40).toFixed(2)}))`;
+    tint.style.background = `${mood}, linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.5))`;
+  }
+}
+
+// ====================== Wetter-Effekte (Canvas: Regen/Schnee) ======================
+let fx={type:"",particles:[],raf:0,intensity:1,_resize:false};
+function setFX(condKey, temp, slider){
+  const canvas=document.getElementById("fx"); if(!canvas) return;
+  let type="";
+  if(condKey==="rain"||condKey==="rain-heavy") type=(temp!=null&&temp<=1)?"snow":"rain";
+  const pess=slider<0?-slider/100:0;
+  fx.intensity=(condKey==="rain-heavy"?1.6:1)*(1+pess*0.5);
+  if(type!==fx.type){ fx.type=type; seedFX(canvas); }
+}
+function seedFX(canvas){
+  cancelAnimationFrame(fx.raf);
+  const ctx=canvas.getContext("2d");
+  const resize=()=>{canvas.width=innerWidth;canvas.height=innerHeight;};
+  resize();
+  if(!fx._resize){ fx._resize=true; addEventListener("resize",resize); }
+  if(!fx.type){ ctx.clearRect(0,0,canvas.width,canvas.height); return; }
+  const base=fx.type==="snow"?90:150;
+  const count=Math.round(base*fx.intensity);
+  fx.particles=[]; for(let i=0;i<count;i++) fx.particles.push(newParticle(canvas));
+  loopFX(ctx,canvas);
+}
+function newParticle(c){
+  if(fx.type==="snow") return {x:Math.random()*c.width,y:Math.random()*c.height,r:1+Math.random()*2.5,vy:0.5+Math.random()*1.2,vx:(Math.random()-0.5)*0.6,sw:Math.random()*6.28};
+  return {x:Math.random()*c.width,y:Math.random()*c.height,len:8+Math.random()*12,vy:7+Math.random()*6,vx:-1-Math.random()*1.6};
+}
+function loopFX(ctx,c){
+  ctx.clearRect(0,0,c.width,c.height);
+  if(fx.type==="rain"){
+    ctx.strokeStyle="rgba(180,200,230,0.5)"; ctx.lineWidth=1.1;
+    for(const p of fx.particles){ ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.vx,p.y+p.len); ctx.stroke(); p.x+=p.vx; p.y+=p.vy; if(p.y>c.height){p.y=-p.len;p.x=Math.random()*c.width;} }
+  } else if(fx.type==="snow"){
+    ctx.fillStyle="rgba(255,255,255,0.85)";
+    for(const p of fx.particles){ p.sw+=0.02; p.x+=p.vx+Math.sin(p.sw)*0.4; p.y+=p.vy; if(p.y>c.height){p.y=-4;p.x=Math.random()*c.width;} ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.3); ctx.fill(); }
+  } else { return; }
+  fx.raf=requestAnimationFrame(()=>loopFX(ctx,c));
+}
+
+// ====================== Generative Stimmungsmusik (Web Audio, lokal) ======================
+let audio={ctx:null,master:null,filter:null,timer:null,started:false};
+function startMusic(){
+  if(audio.started) return;
+  const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+  audio.ctx=new AC();
+  if(audio.ctx.state==="suspended"){ audio.ctx.resume().catch(()=>{}); }
+  audio.master=audio.ctx.createGain(); audio.master.gain.value=0; audio.master.connect(audio.ctx.destination);
+  audio.master.gain.linearRampToValueAtTime(0.16, audio.ctx.currentTime+2.5);
+  audio.filter=audio.ctx.createBiquadFilter(); audio.filter.type="lowpass"; audio.filter.frequency.value=1000; audio.filter.connect(audio.master);
+  audio.started=true;
+  updateMusic(STATE.slider, "");
+  scheduleMusic();
+}
+function stopMusic(){
+  if(!audio.started) return;
+  try{ audio.master.gain.cancelScheduledValues(audio.ctx.currentTime); audio.master.gain.linearRampToValueAtTime(0,audio.ctx.currentTime+1); }catch(e){}
+  clearTimeout(audio.timer);
+  const ctx=audio.ctx; audio.started=false;
+  setTimeout(()=>{ try{ctx.close();}catch(e){} },1300);
+  audio.ctx=null;
+}
+function musScale(){
+  const major=[0,2,4,7,9,12,14,16], minor=[0,3,5,7,10,12,15];
+  return STATE.slider>=0?major:minor;
+}
+function musFreq(semi){ return 110*Math.pow(2,semi/12); }
+function playPad(freq,dur){
+  const c=audio.ctx; if(!c||!audio.started) return;
+  const o1=c.createOscillator(),o2=c.createOscillator(),g=c.createGain();
+  o1.type="sine"; o2.type="triangle"; o1.frequency.value=freq; o2.frequency.value=freq*2;
+  g.gain.value=0; o1.connect(g); o2.connect(g); g.connect(audio.filter);
+  const t=c.currentTime;
+  g.gain.linearRampToValueAtTime(0.22,t+0.9);
+  g.gain.linearRampToValueAtTime(0,t+dur);
+  o1.start(t); o2.start(t); o1.stop(t+dur+0.1); o2.stop(t+dur+0.1);
+}
+function scheduleMusic(){
+  if(!audio.started) return;
+  const sc=musScale();
+  const oct=STATE.slider>=20?12:(STATE.slider<=-40?-12:0);
+  playPad(musFreq(sc[Math.floor(Math.random()*sc.length)]+oct),3.6);
+  if(Math.random()<0.5){ const n=sc[Math.floor(Math.random()*sc.length)]+oct; setTimeout(()=>playPad(musFreq(n),3.2),650); }
+  const o=STATE.slider/100;
+  const interval=Math.max(1500, 2700 - o*700 + Math.random()*900);
+  audio.timer=setTimeout(scheduleMusic, interval);
+}
+function updateMusic(slider, condKey){
+  if(!audio.started||!audio.ctx) return;
+  const o=slider/100;
+  let cut=700+(o+1)*750;   // optimistisch heller, pessimistisch dunkler
+  if(condKey==="rain"||condKey==="rain-heavy"||condKey==="cloudy") cut*=0.7;
+  try{ audio.filter.frequency.linearRampToValueAtTime(cut, audio.ctx.currentTime+0.6); }catch(e){}
+}
 function vibeText(slider,cond,hi,lo){
   const c=cond.txt.toLowerCase();
   if(slider>=60) return `Wird ein super Tag! ${cond.txt}, und die optimistische Lesart der Modelle verspricht angenehme ${Math.round(hi)}°. Genieß es!`;
@@ -532,6 +698,9 @@ function render(){
   const loToday=pick(D.tmin[0],s,'temp');
 
   setBackground(cond.key,s);
+  applyMoodVisuals(s);
+  setFX(STATE.bgOn?cond.key:"", curTemp, s);
+  if(STATE.musicOn) updateMusic(s, cond.key);
   document.getElementById("moodLabel").textContent=moodLabel(s);
 
   let hoursHtml="";
@@ -605,6 +774,7 @@ function render(){
 // ====================== Laden ======================
 async function load(lat,lon,label){
   STATE.lat=lat; STATE.lon=lon; STATE.place=label;
+  if(STATE.bgOn) setLocationBg(lat,lon,label);
   document.getElementById("content").innerHTML=`<div class="loading">Wetterdaten werden geladen…</div>`;
   // 1. Backend versuchen (falls konfiguriert), 2. sonst Direktabruf
   if(BACKEND_URL){
@@ -625,6 +795,8 @@ async function load(lat,lon,label){
 
 // ====================== Events ======================
 document.getElementById("slider").addEventListener("input",e=>{STATE.slider=+e.target.value;if(STATE.norm)render();updateURL();});
+document.getElementById("tgBg").addEventListener("click",window.toggleBg);
+document.getElementById("tgMusic").addEventListener("click",window.toggleMusic);
 document.getElementById("goSearch").addEventListener("click",doSearch);
 document.getElementById("q").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
 async function doSearch(){
@@ -662,6 +834,21 @@ window.toggleRaw=()=>{STATE.showRaw=!STATE.showRaw;render();};
 window.setRawHour=(v)=>{STATE.rawHour=+v;render();};
 window.toggleDay=(i)=>{STATE.openDay=(STATE.openDay===i)?null:i;render();};
 window.setMetric=(k)=>{STATE.openMetric=k;render();};
+window.toggleBg=()=>{
+  STATE.bgOn=!STATE.bgOn;
+  document.getElementById("tgBg").classList.toggle("on",STATE.bgOn);
+  const bg=document.getElementById("bg");
+  if(STATE.bgOn){ if(STATE.lat!=null) setLocationBg(STATE.lat,STATE.lon,STATE.place); }
+  else if(bg){ bg.classList.remove("show"); }
+  if(STATE.norm) render();
+  updateURL();
+};
+window.toggleMusic=()=>{
+  STATE.musicOn=!STATE.musicOn;
+  document.getElementById("tgMusic").classList.toggle("on",STATE.musicOn);
+  if(STATE.musicOn){ startMusic(); } else { stopMusic(); }
+  updateURL();
+};
 
 // Service Worker für Offline-Modus registrieren (nur über HTTPS/localhost aktiv)
 if("serviceWorker" in navigator){
@@ -675,6 +862,12 @@ if("serviceWorker" in navigator){
   const place=q.get("place")||"";
   const mood=parseInt(q.get("mood"),10);
   if(!isNaN(mood)){ STATE.slider=Math.max(-100,Math.min(100,mood)); document.getElementById("slider").value=STATE.slider; }
+  if(q.get("bg")==="0"){ STATE.bgOn=false; document.getElementById("tgBg").classList.remove("on"); }
+  if(q.get("music")==="1"){
+    STATE.musicOn=true; document.getElementById("tgMusic").classList.add("on");
+    const startOnce=()=>{ if(STATE.musicOn) startMusic(); document.removeEventListener("pointerdown",startOnce); };
+    document.addEventListener("pointerdown",startOnce);   // Autoplay-Regeln: erst bei erster Berührung
+  }
   if(!isNaN(lat)&&!isNaN(lon)){ load(lat,lon, place||`${lat.toFixed(2)}, ${lon.toFixed(2)}`); }
   else { load(52.52,13.41,"Berlin"); }
 })();
